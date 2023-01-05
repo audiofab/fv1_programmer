@@ -3,9 +3,16 @@ from adaptor.adapter import Adaptor
 
 import sys
 import time
+import logging
+from pathlib import Path
+from intelhex import IntelHex
+
 
 _MAX_TRANSACTION_SIZE = 65535
 _DEFAULT_PAGE_SIZE = 32
+
+logger = logging.getLogger('eeprom')
+
 
 class EEPROM(ABC):
     def __init__(self, adaptor : Adaptor, size_in_bytes : int, page_size_in_bytes : int =_DEFAULT_PAGE_SIZE) -> None:
@@ -72,12 +79,42 @@ class EEPROM(ABC):
 
         return transactions
 
+    def load_hex(self, filepath : Path, padding=0xFF, verify : bool=False):
+        """
+        Loads a hex file onto the connected EEPROM.
+        """
+        hex_file = IntelHex(str(filepath))
+        hex_file.padding = padding
+        write_data = hex_file.tobinstr(start=0, size=self.size)
+        self.write_bytes(0, write_data)
+        if verify:
+            readback = self.read_bytes(0, self.size)
+            assert readback == write_data
+
+    def load_bin(self, filepath : Path, verify : bool=False):
+        """
+        Loads a binary file onto the connected EEPROM.
+        """
+        with open(filepath, 'rb') as f:
+            write_data = f.read(self.size)
+            assert len(write_data) <= self.size
+            self.write_bytes(0, write_data)
+            if verify:
+                readback = self.read_bytes(0, self.size)
+                assert readback == write_data
+
+    def dump(self, filepath : Path):
+        """
+        Dumps the entire contents of EEPROM to a binary file.
+        """
+        with open(filepath, 'wb') as f:
+            f.write(self.read_bytes(0, self.size))
 
 class I2CEEPROM(EEPROM):
     def read_bytes(self, byte_address, num_bytes):
         _bytes = b''
         for _addr, _offset, _len in EEPROM.split_transaction(_MAX_TRANSACTION_SIZE, byte_address, num_bytes):
-            print(_addr, _offset, _len)
+            # logger.debug(_addr, _offset, _len)
             # Send the 16-bit byte address followed by the read
             _bytes += self.adaptor.write_then_read_bytes(_addr.to_bytes(2, 'big'), _len)
 
@@ -86,5 +123,6 @@ class I2CEEPROM(EEPROM):
     def write_bytes(self, byte_address, byte_list):
         # Perform the write, split on page boundaries
         for _addr, _offset, _len in EEPROM.split_transaction(self.page_size, byte_address, len(byte_list)):
-            print(_addr, _offset, _len)
+            # logger.debug(_addr, _offset, _len)
             self.adaptor.write_bytes(_addr.to_bytes(2, 'big') + EEPROM.ensure_bytes(byte_list[_offset:_offset+_len]))
+

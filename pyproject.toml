@@ -11,6 +11,7 @@ python = "^3.8"
 textual = {extras = ["dev"], version = "^0.7.0"}
 easymcp2221 = "^1.6.2"
 pytest = "^7.2.0"
+intelhex = "^2.3.0"
 
 [tool.pytest.ini_options]
 pythonpath = [
