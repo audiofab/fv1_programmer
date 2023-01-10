@@ -79,6 +79,18 @@ class EEPROM(ABC):
 
         return transactions
 
+    def load_file(self, filepath : Path, padding=0xFF, verify : bool=False):
+        """
+        Loads a file onto the connected EEPROM.
+        """
+        assert filepath.is_file() and filepath.exists(), f"Invalid file path {str(filepath)}"
+        if filepath.suffix.lower() == '.hex':
+            return self.load_hex(filepath, padding=padding, verify=verify)
+        elif filepath.suffix.lower() == '.bin':
+            return self.load_bin(filepath, verify=verify)
+
+        raise ValueError(f"Don't know how to handle file suffix '{filepath.suffix}'")
+
     def load_hex(self, filepath : Path, padding=0xFF, verify : bool=False):
         """
         Loads a hex file onto the connected EEPROM.
@@ -109,6 +121,16 @@ class EEPROM(ABC):
         """
         with open(filepath, 'wb') as f:
             f.write(self.read_bytes(0, self.size))
+
+    def erase(self, byte_value : int, verify : bool=False):
+        """
+        Erase the EEPROM by filling it with `byte_value`
+        """
+        erase_bytes = bytes([byte_value]*self.size)
+        self.write_bytes(0, erase_bytes)
+        if verify:
+            assert self.read_bytes(0, self.size) == erase_bytes
+
 
 class I2CEEPROM(EEPROM):
     def read_bytes(self, byte_address, num_bytes):

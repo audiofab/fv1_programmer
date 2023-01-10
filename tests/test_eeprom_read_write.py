@@ -18,47 +18,26 @@ def i2c_ee(adaptor):
 
 
 def test_erase_EEPROM(i2c_ee):
-    all_zeroes = bytes([0x0]*i2c_ee.size)
-    all_ones = bytes([0xff]*i2c_ee.size)
-    checkerboard1 = bytes([0xA5]*i2c_ee.size)
-    checkerboard2 = bytes([0xA5]*i2c_ee.size)
-
     # Fill with ones
-    i2c_ee.write_bytes(0, all_ones)
-    _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == all_ones
+    i2c_ee.erase(0xFF, verify=True)
 
     # Fill with zeroes
-    i2c_ee.write_bytes(0, all_zeroes)
-    _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == all_zeroes
+    i2c_ee.erase(0, verify=True)
 
     # Fill with ones
-    i2c_ee.write_bytes(0, all_ones)
-    _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == all_ones
+    i2c_ee.erase(0xFF, verify=True)
 
 
 def test_checkerboard(i2c_ee):
-    checkerboard1 = bytes([0xA5]*i2c_ee.size)
-    checkerboard2 = bytes([0xA5]*i2c_ee.size)
-
-    i2c_ee.write_bytes(0, checkerboard1)
-    _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == checkerboard1
-
-    i2c_ee.write_bytes(0, checkerboard2)
-    _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == checkerboard2
+    i2c_ee.erase(0xA5, verify=True)
+    i2c_ee.erase(0x5A, verify=True)
 
 
 def test_partial_write(i2c_ee):
-    empty = bytes([0xff]*i2c_ee.size)
-
     # Erase EEPROM
-    i2c_ee.write_bytes(0, empty)
+    i2c_ee.erase(0xFF, verify=True)
+
     _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == empty
 
     _rand = secrets.token_bytes(4096)
     assert _read != _rand
@@ -68,9 +47,7 @@ def test_partial_write(i2c_ee):
     assert _read == _rand
 
     # Erase EEPROM
-    i2c_ee.write_bytes(0, empty)
-    _read = i2c_ee.read_bytes(0, i2c_ee.size)
-    assert _read == empty
+    i2c_ee.erase(0xFF, verify=True)
 
     # Overwrite partial pages
     i2c_ee.write_bytes(3, _rand[3:577])
@@ -88,8 +65,13 @@ def test_partial_write(i2c_ee):
 
 def test_load_bin(i2c_ee):
     this_path = pathlib.Path(__file__).parent.resolve()
-    i2c_ee.load_bin(this_path / 'backup.bin', verify=True)
+    i2c_ee.load_file(this_path / 'backup.bin', verify=True)
 
 def test_load_hex(i2c_ee):
     this_path = pathlib.Path(__file__).parent.resolve()
-    i2c_ee.load_hex(this_path / 'reverbs.hex', verify=True)
+    i2c_ee.load_file(this_path / 'reverbs.hex', verify=True)
+
+def test_load_file_fail(i2c_ee):
+    this_path = pathlib.Path(__file__).parent.resolve()
+    with pytest.raises(ValueError) as exc_info:
+        i2c_ee.load_file(this_path / '__init__.py', verify=True)
