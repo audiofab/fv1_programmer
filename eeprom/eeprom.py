@@ -115,7 +115,7 @@ class EEPROM(ABC):
                 readback = self.read_bytes(0, self.size)
                 assert readback == write_data
 
-    def dump(self, filepath : Path):
+    def save_file(self, filepath : Path):
         """
         Dumps the entire contents of EEPROM to a binary file.
         """

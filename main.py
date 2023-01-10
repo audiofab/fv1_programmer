@@ -19,6 +19,8 @@ def parse_command_line_arguments():
                         help='The padding byte value (when loading a .hex file)')
     parser.add_argument('--load-file', type=Path, default=None,
                         help='If given, load the specified file (.hex or .bin) onto the device')
+    parser.add_argument('--save-file', type=Path, default=None,
+                        help='If given, read the entire contents of EEPROM and save to the specified file')
     parser.add_argument('--verify', action="store_true", default=False,
                         help='Verify the EEPROM contents after loading a .hex file')
     args = parser.parse_args()
@@ -27,6 +29,18 @@ def parse_command_line_arguments():
         raise ValueError("CH341 programmer support is not implemented.")
 
     return args
+
+
+def save_file(args):
+    from adaptor.mcp2221 import MCP2221I2CAdaptor
+    from eeprom.eeprom import I2CEEPROM
+
+    adaptor = MCP2221I2CAdaptor(args.i2c_address, i2c_clock_speed=args.i2c_clock_speed)
+    adaptor.open()
+    ee = I2CEEPROM(adaptor, size_in_bytes=args.ee_size, page_size_in_bytes=args.ee_page_size)
+    ee.save_file(args.save_file)
+    print(f"EEPROM content saved to '{str(args.save_file)}'")
+    return 0
 
 
 def load_file(args):
@@ -43,6 +57,9 @@ def load_file(args):
 
 if __name__ == '__main__':
     args = parse_command_line_arguments()
+
+    if args.save_file is not None:
+        sys.exit(save_file(args))
 
     if args.load_file is not None:
         sys.exit(load_file(args))
