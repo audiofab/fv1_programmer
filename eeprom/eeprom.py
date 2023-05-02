@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from adaptor.adapter import Adaptor
 
-import sys
-import time
 import logging
 from pathlib import Path
 from intelhex import IntelHex
