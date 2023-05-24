@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fv1-programmer"
-version = "0.2.0"
+version = "0.2.1"
 description = "An EEPROM programming tool for the FV-1 DSP"
 authors = ["Mark Melvin <mark.melvin@audiofab.com>"]
 readme = "README.md"
