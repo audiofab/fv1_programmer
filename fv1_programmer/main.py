@@ -54,8 +54,7 @@ def load_file(args):
     ee.load_file(args.load_file, padding=args.pad_value, verify=args.verify)
     return 0
 
-
-if __name__ == '__main__':
+def run():
     args = parse_command_line_arguments()
 
     if args.save_file is not None:
@@ -67,3 +66,7 @@ if __name__ == '__main__':
     # from tui import DemoApp
     # app = DemoApp(args)
     # app.run()
+
+
+if __name__ == '__main__':
+    run()

@@ -1,27 +1,46 @@
 [tool.poetry]
 name = "fv1-programmer"
-version = "0.1.0"
-description = ""
+version = "0.2.0"
+description = "An EEPROM programming tool for the FV-1 DSP"
 authors = ["Mark Melvin <mark.melvin@audiofab.com>"]
 readme = "README.md"
-packages = [{include = "fv1_programmer"}]
+license = "MIT"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Typing :: Typed",
+]
+
+packages = [
+    {include = "fv1_programmer"},
+    {include = "eeprom"},
+    {include = "adaptor"},
+]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-textual = {extras = ["dev"], version = "^0.7.0"}
+# textual = {extras = ["dev"], version = "^0.7.0"}
 easymcp2221 = "^1.6.2"
 intelhex = "^2.3.0"
 
-[tool.poetry.group.test.dependencies]
-pytest = "^7.2.0"
-
 [tool.poetry.group.dev.dependencies]
-pyinstaller = { version="^5.10.1", python=">=3.8,<3.12" }
+pytest = "^7.2.0"
 
 [tool.pytest.ini_options]
 pythonpath = [
   "."
 ]
+
+[tool.poetry.scripts]
+fv1_programmer = "fv1_programmer.main:run"
 
 [build-system]
 requires = ["poetry-core"]
