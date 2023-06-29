@@ -146,3 +146,44 @@ class I2CEEPROM(EEPROM):
             # logger.debug(_addr, _offset, _len)
             self.adaptor.write_bytes(_addr.to_bytes(2, 'big') + EEPROM.ensure_bytes(byte_list[_offset:_offset+_len]))
 
+
+class DummyEEPROM(EEPROM):
+    def __init__(self, filepath : Path, min_size : int, fill_byte : int=0xFF) -> None:
+        self.data = [fill_byte]*min_size
+        self.filepath = filepath
+        self.fill_byte = fill_byte
+
+        # Initialize from file, if it exists
+        if self.filepath.exists() and self.filepath.is_file():
+            with open(self.filepath, 'rb') as f:
+                _data = f.read()
+                self._ensure_length(len(_data))
+                self.data[0:len(_data)] = _data
+
+    @property
+    def size(self,):
+        return len(self.data)
+
+    @property
+    def page_size(self,):
+        return self.size
+
+    def _resize(self, new_size):
+        l = [self.fill_byte]*max(new_size, len(self.data))
+        l[0:len(self.data)] = self.data
+        self.data = l
+
+    def _ensure_length(self, min_length):
+        if len(self.data) < min_length:
+            self._resize(min_length)
+
+    def read_bytes(self, byte_address, num_bytes):
+        self._ensure_length(byte_address + num_bytes)
+        return bytes(self.data[byte_address:byte_address + num_bytes])
+
+    def write_bytes(self, byte_address, byte_list):
+        _data = EEPROM.ensure_bytes(byte_list)
+        self._ensure_length(byte_address + len(_data))
+        self.data[byte_address:byte_address + len(byte_list)] = _data
+        with open(self.filepath, 'wb') as f:
+            f.write(bytes(self.data))

@@ -5,7 +5,7 @@ import sys
 
 def parse_command_line_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--programmer', default='MCP2221', choices=['MCP2221', 'CH341'],
+    parser.add_argument('--programmer', default='MCP2221', choices=['MCP2221'],
                         help='The type of programmer to use')
     parser.add_argument('--i2c-address', default=0x50, type=lambda x: int(x, base=0),
                         help='The I2C address of the target EEPROM')
@@ -23,33 +23,47 @@ def parse_command_line_arguments():
                         help='If given, read the entire contents of EEPROM and save to the specified file')
     parser.add_argument('--verify', action="store_true", default=False,
                         help='Verify the EEPROM contents after loading a .hex file')
+    parser.add_argument('--sim', type=Path, default=None,
+                        help='If specified, use the given file to emulate an EEPROM instead of a physical one')
     args = parser.parse_args()
-
-    if args.programmer == 'CH341':
-        raise ValueError("CH341 programmer support is not implemented.")
 
     return args
 
 
-def save_file(args):
-    from adaptor.mcp2221 import MCP2221I2CAdaptor
-    from eeprom.eeprom import I2CEEPROM
+def __get_adapter(args):
+    if args.sim:
+        return None
+    elif args.programmer == 'MCP2221':
+        from adaptor.mcp2221 import MCP2221I2CAdaptor
+        return MCP2221I2CAdaptor(args.i2c_address, i2c_clock_speed=args.i2c_clock_speed)
 
-    adaptor = MCP2221I2CAdaptor(args.i2c_address, i2c_clock_speed=args.i2c_clock_speed)
-    adaptor.open()
-    ee = I2CEEPROM(adaptor, size_in_bytes=args.ee_size, page_size_in_bytes=args.ee_page_size)
+    raise ValueError(f"Unknown programmer {args.programmer}!")
+
+
+def __get_eeprom(args, adaptor):
+    if args.sim:
+        from eeprom.eeprom import DummyEEPROM
+        return DummyEEPROM(args.sim, args.ee_size)
+
+    from eeprom.eeprom import I2CEEPROM
+    return I2CEEPROM(adaptor, args.ee_size, page_size_in_bytes=args.ee_page_size)
+
+
+def save_file(args):
+    adaptor = __get_adapter(args)
+    if adaptor is not None:
+        adaptor.open()
+    ee = __get_eeprom(args, adaptor)
     ee.save_file(args.save_file)
     print(f"EEPROM content saved to '{str(args.save_file)}'")
     return 0
 
 
 def load_file(args):
-    from adaptor.mcp2221 import MCP2221I2CAdaptor
-    from eeprom.eeprom import I2CEEPROM
-
-    adaptor = MCP2221I2CAdaptor(args.i2c_address, i2c_clock_speed=args.i2c_clock_speed)
-    adaptor.open()
-    ee = I2CEEPROM(adaptor, size_in_bytes=args.ee_size, page_size_in_bytes=args.ee_page_size)
+    adaptor = __get_adapter(args)
+    if adaptor is not None:
+        adaptor.open()
+    ee = __get_eeprom(args, adaptor)
     print(f"Loading{' (and verifying):' if args.verify else ':'} {str(args.load_file)}")
     ee.load_file(args.load_file, padding=args.pad_value, verify=args.verify)
     return 0
