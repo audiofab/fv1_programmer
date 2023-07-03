@@ -23,6 +23,8 @@ def parse_command_line_arguments():
                         help='If given, read the entire contents of EEPROM and save to the specified file')
     parser.add_argument('--verify', action="store_true", default=False,
                         help='Verify the EEPROM contents after loading a .hex file')
+    parser.add_argument('--debug', action="store_true", default=False,
+                        help='Log debug messages')
     parser.add_argument('--sim', type=Path, default=None,
                         help='If specified, use the given file to emulate an EEPROM instead of a physical one')
     args = parser.parse_args()
@@ -77,9 +79,9 @@ def run():
     if args.load_file is not None:
         sys.exit(load_file(args))
 
-    # from tui import DemoApp
-    # app = DemoApp(args)
-    # app.run()
+    from fv1_programmer.tui import FV1App
+    app = FV1App(args)
+    app.run()
 
 
 if __name__ == '__main__':

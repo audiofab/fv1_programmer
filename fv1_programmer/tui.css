@@ -1,0 +1,98 @@
+*  {
+    transition: background 500ms in_out_cubic, color 500ms in_out_cubic;
+}
+
+Screen {
+    layers: base overlay top notifications;
+    overflow: hidden;
+}
+
+Footer {
+    layer: top;
+}
+
+Notification {
+    dock: bottom;
+    layer: notification;
+    width: auto;
+    margin: 2 4;
+    padding: 1 2;
+    background: $background;
+    color: $text;
+    height: auto;
+    
+}
+
+Tooltip {
+    background: $primary;
+    color: auto 90%;
+}
+
+TabbedContent {
+    dock: top;
+    background: $surface;
+}
+
+ContentSwitcher {
+    background: $panel;
+    /* border: round $primary; */
+    width: 100%;
+    height: 1fr;
+    padding: 0;
+}
+
+TabPane {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+FV1ProgramPane {
+    height: 95%;
+    width: 100%;
+    /* border: solid; */
+}
+
+FV1ProgramPane > Markdown {
+    margin: 0 1;
+    padding: 0;
+    height: 100%;
+}
+
+MarkdownFence {
+    max-height: 100%;
+}
+
+#consolelog {
+    background: $panel;
+    color: $text;
+    height: 30vh;
+    dock: bottom;
+    layer: base;
+    border-top: hkey $primary;
+    offset-y: -1;
+    transition: offset 400ms in_out_cubic;
+    padding: 0 1 1 1;
+}
+
+#consolelog.-hidden {
+    offset-y: 100%;
+}
+
+
+#quitdialog {
+    grid-size: 2;
+    grid-gutter: 1 2;
+    margin: 1 2;
+}
+
+#question {
+    column-span: 2;
+    content-align: center bottom;
+    width: 100%;
+    height: 100%;
+}
+
+#quitdialog > Button {
+    width: 100%;
+}

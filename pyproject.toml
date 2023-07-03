@@ -27,7 +27,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.8"
-# textual = {extras = ["dev"], version = "^0.7.0"}
+textual = {extras = ["dev"], version = "^0.28.1"}
 easymcp2221 = "^1.6.2"
 intelhex = "^2.3.0"
 
