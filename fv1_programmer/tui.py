@@ -18,9 +18,10 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
     Markdown,
+    DirectoryTree,
 )
 
-
+from typing import Iterable
 from pathlib import Path
 from fv1_programmer.fv1 import EMPTY_FV1_PROGRAM, ROM_REV1
 
@@ -30,6 +31,42 @@ __version__ = "0.1.0"
 _title = "FV1 Programmer"
 
 
+class FilteredDirectoryTree(DirectoryTree):
+    def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
+        return [path for path in paths if not path.name.startswith(".") and \
+                    path.is_dir() or (path.is_file() and path.suffix.lower() in ['.hex', '.bin'])]
+
+
+class FileSelectionScreen(Screen):
+    selection : reactive[Path | None] = reactive(None)
+
+    def compose(self) -> ComposeResult:
+        yield Grid(
+            Static("Choose a file:", id="fileselectlabel"),
+            FilteredDirectoryTree("./", id="filetree"),
+            Button("Cancel", variant="primary", id="cancel"),
+            Button("Select", variant="primary", id="select"),
+            id="fileselectiondialog",
+        )
+
+    @on(DirectoryTree.FileSelected, "#filetree")
+    def do_file_selected(self, event : DirectoryTree.FileSelected):
+        self.selection = event.path
+
+    def watch_selection(self, new_path: Path):
+        self.selection = new_path
+        self.query_one("#select", Button).disabled = self.selection is None
+
+    @on(Button.Pressed, "#select")
+    def do_select(self):
+        self.app.logger.info("OK pressed")
+        self.app.pop_screen()
+
+    @on(Button.Pressed, "#cancel")
+    def cancel(self):
+        self.app.pop_screen()
+
+
 class FV1ProgramPane(Widget):
     program = reactive(EMPTY_FV1_PROGRAM)
 
@@ -37,8 +74,14 @@ class FV1ProgramPane(Widget):
         yield Markdown()
 
     def watch_program(self, new_program: str):
+        if new_program.startswith("```") and new_program.endswith("```"):
+            self.query_one(Markdown).update(new_program)
+            return
         self.query_one(Markdown).update(f"```{new_program}```")
 
+    def on_directory_tree_file_selected(self, event):
+        self.app.logger.info(event.node)
+        self.app.logger.info(str(event.path))
 
 class ProgramTabs(Widget):
     def compose(self) -> ComposeResult:  
@@ -65,8 +108,8 @@ class QuitScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Grid(
             Static("Are you sure you want to quit?", id="question"),
-            Button("Quit", variant="error", id="quit"),
             Button("Cancel", variant="primary", id="cancel"),
+            Button("Quit", variant="error", id="quit"),
             id="quitdialog",
         )
 
@@ -117,8 +160,10 @@ class MainScreen(Screen):
         self.app.push_screen("quit")
 
     def action_load_file(self) -> None:
-        active_program = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
-        active_program.program = ROM_REV1
+        self.app.push_screen("loadfile")
+
+        # active_program = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        # active_program.program = ROM_REV1
 
     def action_read_eeprom(self) -> None:
         self.app.logger.info("Read EEPROM (Not Implemented)")
@@ -153,7 +198,7 @@ class Args:
 
 class FV1App(App[None]):
     CSS_PATH = "tui.css"
-    SCREENS = {"main" : MainScreen(), "quit" : QuitScreen()}
+    SCREENS = {"main" : MainScreen(), "quit" : QuitScreen(), "loadfile" : FileSelectionScreen()}
 
     def __init__(self, cmdline_args=None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

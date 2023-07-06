@@ -56,7 +56,13 @@ FV1ProgramPane {
 FV1ProgramPane > Markdown {
     margin: 0 1;
     padding: 0;
-    height: 100%;
+    height: 50%;
+}
+
+FV1ProgramPane > DirectoryTree {
+    margin: 0 1;
+    padding: 0;
+    height: 50%;
 }
 
 MarkdownFence {
@@ -95,4 +101,41 @@ MarkdownFence {
 
 #quitdialog > Button {
     width: 100%;
+}
+
+#fileselectiondialog {
+    grid-size: 2;
+    grid-gutter: 1 2;
+    margin: 1 2;
+}
+
+#fileselectlabel {
+    column-span: 2;
+    content-align: left bottom;
+    width: 100%;
+    height: auto;
+    dock: top;
+}
+
+#filetree {
+    column-span: 2;
+    content-align: center middle;
+    width: 100%;
+    height: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#fileselectiondialog > #cancel {
+    dock: bottom;
+    width: 30;
+    margin-left: 5;
+    align: left top;
+}
+
+#fileselectiondialog > #select {
+    dock: bottom;
+    width: 30;
+    margin-right: 5;
+    align: right top;
 }
