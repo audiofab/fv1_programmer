@@ -7,7 +7,7 @@ from textual import on
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
 from textual.containers import Container, Grid
-from textual.screen import Screen
+from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
     Footer,
@@ -34,13 +34,15 @@ _title = "FV1 Programmer"
 class FilteredDirectoryTree(DirectoryTree):
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         return [path for path in paths if not path.name.startswith(".") and \
+                    # TODO: Support SpinCAD file types as well!
                     path.is_dir() or (path.is_file() and path.suffix.lower() in ['.hex', '.bin'])]
 
 
-class FileSelectionScreen(Screen):
+class FileSelectionScreen(ModalScreen[Path]):
     selection : reactive[Path | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
+        # TODO: Support setting the root folder and drive
         yield Grid(
             Static("Choose a file:", id="fileselectlabel"),
             FilteredDirectoryTree("./", id="filetree"),
@@ -55,16 +57,19 @@ class FileSelectionScreen(Screen):
 
     def watch_selection(self, new_path: Path):
         self.selection = new_path
-        self.query_one("#select", Button).disabled = self.selection is None
+        enabled = self.selection is not None
+        select_button = self.query_one("#select", Button)
+        select_button.disabled = not enabled
+        if enabled:
+            select_button.focus()
 
     @on(Button.Pressed, "#select")
     def do_select(self):
-        self.app.logger.info("OK pressed")
-        self.app.pop_screen()
+        self.dismiss(self.selection)
 
     @on(Button.Pressed, "#cancel")
     def cancel(self):
-        self.app.pop_screen()
+        self.dismiss(None)
 
 
 class FV1ProgramPane(Widget):
@@ -104,7 +109,7 @@ class ProgramTabs(Widget):
                 yield FV1ProgramPane(id="fv1prog8")
 
 
-class QuitScreen(Screen):
+class QuitScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         yield Grid(
             Static("Are you sure you want to quit?", id="question"),
@@ -115,11 +120,11 @@ class QuitScreen(Screen):
 
     @on(Button.Pressed, "#quit")
     def quit(self):
-        self.app.do_exit()
+        self.dismiss(True)
 
     @on(Button.Pressed, "#cancel")
     def cancel(self):
-        self.app.pop_screen()
+        self.dismiss(False)
 
 class ConsoleLogStream:
     def __init__(self, log_cb) -> None:
@@ -156,27 +161,27 @@ class MainScreen(Screen):
         self.app.logger.addHandler(sh)
         self.app.logger.info(f"FV1 Programmer version {__version__}")
 
-    def action_request_quit(self) -> None:
-        self.app.push_screen("quit")
+    def action_request_quit(self,) -> None:
+        def check_quit(should_quit : bool) -> None:
+            if should_quit:
+                self.app.exit()
+
+        self.app.push_screen(QuitScreen(), check_quit)
 
     def action_load_file(self) -> None:
-        self.app.push_screen("loadfile")
-
+        self.app.push_screen(FileSelectionScreen(), self.handle_load_file)
         # active_program = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         # active_program.program = ROM_REV1
+
+    def handle_load_file(self, path : Path) -> None:
+        self.app.logger.info(path)
+        # TODO do_load_file!
 
     def action_read_eeprom(self) -> None:
         self.app.logger.info("Read EEPROM (Not Implemented)")
 
     def action_write_eeprom(self) -> None:
         self.app.logger.info("Write EEPROM (Not Implemented)")
-
-
-    # @on(ScreenResume)
-    # def update_device_info(self):
-    #     self.app.logger.debug(f"Using the following devices: [{self.app.left_device}, {self.app.right_device}]")
-    #     self.query_one('#deviceleft').device_info = self.app.left_device
-    #     self.query_one('#deviceright').device_info = self.app.right_device
 
 
 
@@ -198,7 +203,7 @@ class Args:
 
 class FV1App(App[None]):
     CSS_PATH = "tui.css"
-    SCREENS = {"main" : MainScreen(), "quit" : QuitScreen(), "loadfile" : FileSelectionScreen()}
+    SCREENS = {"main" : MainScreen()}
 
     def __init__(self, cmdline_args=None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -230,12 +235,5 @@ class FV1App(App[None]):
 
         self.EEPROM = None
 
-
     def on_mount(self) -> None:
         self.push_screen("main")
-
-    def exit(self, result = None) -> None:
-        self.push_screen("quit")
-
-    def do_exit(self, result = None) -> None:
-        super().exit(result)
