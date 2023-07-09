@@ -6,6 +6,7 @@ from rich.console import RenderableType
 from textual import on
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Grid
 from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
@@ -23,7 +24,8 @@ from textual.widgets import (
 
 from typing import Iterable
 from pathlib import Path
-from fv1_programmer.fv1 import EMPTY_FV1_PROGRAM, ROM_REV1
+from fv1_programmer.fv1 import EMPTY_FV1_PROGRAM_ASM, FV1Program, FV1FS
+import pyperclip
 
 
 __version__ = "0.1.0"
@@ -73,20 +75,16 @@ class FileSelectionScreen(ModalScreen[Path]):
 
 
 class FV1ProgramPane(Widget):
-    program = reactive(EMPTY_FV1_PROGRAM)
+    program : reactive[FV1Program] = reactive(FV1Program(EMPTY_FV1_PROGRAM_ASM))
 
     def compose(self) -> ComposeResult:  
         yield Markdown()
 
-    def watch_program(self, new_program: str):
-        if new_program.startswith("```") and new_program.endswith("```"):
-            self.query_one(Markdown).update(new_program)
-            return
-        self.query_one(Markdown).update(f"```{new_program}```")
+    def watch_program(self, new_program: FV1Program):
+        self.query_one(Markdown).update(new_program.as_markdown())
 
-    def on_directory_tree_file_selected(self, event):
-        self.app.logger.info(event.node)
-        self.app.logger.info(str(event.path))
+    def on_mount(self) -> None:
+        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+T - Paste from clipboard"""
 
 class ProgramTabs(Widget):
     def compose(self) -> ComposeResult:  
@@ -143,6 +141,7 @@ class MainScreen(Screen):
         ("ctrl+w", "write_eeprom", "Write EEPROM"),
         ("f1", "app.toggle_class('TextLog', '-hidden')", "Show Log"),
         ("ctrl+q", "request_quit", "Quit"),
+        Binding("ctrl+t", "paste", "Paste", show=False, priority=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -164,18 +163,15 @@ class MainScreen(Screen):
     def action_request_quit(self,) -> None:
         def check_quit(should_quit : bool) -> None:
             if should_quit:
-                self.app.exit()
+                self.app.do_exit()
 
         self.app.push_screen(QuitScreen(), check_quit)
 
     def action_load_file(self) -> None:
-        self.app.push_screen(FileSelectionScreen(), self.handle_load_file)
-        # active_program = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
-        # active_program.program = ROM_REV1
+        def handle_load_file(path : Path) -> None:
+            self.app.logger.info(path)
 
-    def handle_load_file(self, path : Path) -> None:
-        self.app.logger.info(path)
-        # TODO do_load_file!
+        self.app.push_screen(FileSelectionScreen(), handle_load_file)
 
     def action_read_eeprom(self) -> None:
         self.app.logger.info("Read EEPROM (Not Implemented)")
@@ -183,6 +179,10 @@ class MainScreen(Screen):
     def action_write_eeprom(self) -> None:
         self.app.logger.info("Write EEPROM (Not Implemented)")
 
+    def action_paste(self) -> None:
+        # TODO - Validate program?
+        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        active_program_pane.program = FV1Program(pyperclip.paste())
 
 
 from dataclasses import dataclass
@@ -200,6 +200,15 @@ class Args:
     verify:bool
     debug:bool
     sim:bool
+
+
+class Notification(Static):
+    def on_mount(self) -> None:
+        self.set_timer(3, self.remove)
+
+    def on_click(self) -> None:
+        self.remove()
+
 
 class FV1App(App[None]):
     CSS_PATH = "tui.css"
@@ -235,5 +244,19 @@ class FV1App(App[None]):
 
         self.EEPROM = None
 
+    # Intercept the app exit (the only thing connected to this should be Ctrl+C)
+    # and make it behave like Copy
+    def exit(self, result = None) -> None:
+        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        if active_program_pane.program is not None:
+            pyperclip.copy(active_program_pane.program.asm)
+            self.notify("Current program copied to clipboard")
+
+    def do_exit(self, result = None) -> None:
+        super().exit(result)
+
     def on_mount(self) -> None:
         self.push_screen("main")
+
+    def notify(self, message) -> None:
+        self.screen.mount(Notification(message))
