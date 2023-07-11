@@ -46,7 +46,7 @@ class EEPROM(ABC):
             return data
         elif type(data) == int:
             return bytes([data])
-        elif type(data) == list:
+        elif type(data) in [list, bytearray]:
             return bytes(data)
         raise ValueError("Invalid data format. Acceptable values are int, list or bytes.")
 

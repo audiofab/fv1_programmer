@@ -89,7 +89,7 @@ class FV1ProgramPane(Widget):
         self.query_one(Markdown).update(markdown)
 
     def on_mount(self) -> None:
-        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+T - Paste from clipboard"""
+        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
 
 class ProgramTabs(Widget):
     def compose(self) -> ComposeResult:  
@@ -185,6 +185,7 @@ class MainScreen(Screen):
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
         Binding("ctrl+t", "paste", "Paste", show=False, priority=True),
+        Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
     ]
 
     show_sidebar = reactive(False)
@@ -233,7 +234,34 @@ class MainScreen(Screen):
         self.app.logger.info("Read EEPROM (Not Implemented)")
 
     def action_write_eeprom(self) -> None:
-        self.app.logger.info("Write EEPROM (Not Implemented)")
+        data_chunks = {}
+        for i in range(1,9):
+            program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
+            if program_pane.program is not None:
+                bin_array, warnings, errors = program_pane.program.assemble(
+                                                            clamp=self.app.setting_asfv1_clamp,
+                                                            spinreals=self.app.setting_asfv1_spinreals)
+                data_chunks[(i - 1)*512] = bin_array
+        if len(data_chunks) == 0:
+            self.app.notify("Nothing to do!")
+        else:
+            eeprom = None
+            if self.app.setting_simulate:
+                from eeprom.eeprom import DummyEEPROM
+                eeprom = DummyEEPROM(Path('sim.bin'), 4096)
+            else:
+                from adaptor.mcp2221 import MCP2221I2CAdaptor
+                from eeprom.eeprom import I2CEEPROM
+                adaptor = MCP2221I2CAdaptor(0x50, i2c_clock_speed=100000)
+                adaptor.open()
+                eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
+
+            assert eeprom is not None
+            total_bytes = 0
+            for addr, data in data_chunks.items():
+                eeprom.write_bytes(addr, data)
+                total_bytes += len(data)
+                self.app.notify(f"Wrote {total_bytes} bytes to program {addr // 512 + 1}")
 
     def action_paste(self) -> None:
         # Validate program
@@ -247,6 +275,10 @@ class MainScreen(Screen):
             active_program_pane.program = FV1Program(pyperclip.paste())
         else:
             self.app.notify("Ignoring invalid clipboard contents")
+
+    def action_delete(self) -> None:
+        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        active_program_pane.program = None
 
 
 from dataclasses import dataclass
@@ -334,4 +366,5 @@ class FV1App(App[None]):
         self.push_screen("main")
 
     def notify(self, message) -> None:
+        self.logger.info(message)
         self.screen.mount(Notification(message))
