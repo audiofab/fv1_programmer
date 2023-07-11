@@ -7,7 +7,7 @@ from textual import on
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Grid
+from textual.containers import Container, Grid, Horizontal, Vertical
 from textual.screen import Screen, ModalScreen
 from textual.widget import Widget
 from textual.widgets import (
@@ -18,6 +18,7 @@ from textual.widgets import (
     Button,
     TabbedContent,
     TabPane,
+    Switch,
     Markdown,
     DirectoryTree,
 )
@@ -75,13 +76,17 @@ class FileSelectionScreen(ModalScreen[Path]):
 
 
 class FV1ProgramPane(Widget):
-    program : reactive[FV1Program] = reactive(FV1Program(EMPTY_FV1_PROGRAM_ASM))
+    program : reactive[FV1Program | None] = reactive(None)
 
     def compose(self) -> ComposeResult:  
         yield Markdown()
 
     def watch_program(self, new_program: FV1Program):
-        self.query_one(Markdown).update(new_program.as_markdown())
+        markdown = '# No program specified (leave this slot untouched)'
+        if new_program is not None:
+            markdown = new_program.as_markdown()
+
+        self.query_one(Markdown).update(markdown)
 
     def on_mount(self) -> None:
         self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+T - Paste from clipboard"""
@@ -124,6 +129,43 @@ class QuitScreen(ModalScreen[bool]):
     def cancel(self):
         self.dismiss(False)
 
+
+class Title(Static):
+    pass
+
+
+class OptionSwitch(Horizontal):
+    def __init__(self, name, label) -> None:
+        self.option_name = name
+        self.option_label = label
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield Switch(value=getattr(self.app, self.option_name))
+        yield Static(self.option_label, classes="label")
+
+    def on_mount(self) -> None:
+        self.watch(self.app, self.option_name, self.on_change, init=False)
+
+    def on_change(self) -> None:
+        self.query_one(Switch).value = getattr(self.app, self.option_name)
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        setattr(self.app, self.option_name, event.value)
+
+
+
+class Sidebar(Container):
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            yield Title("Settings")
+            yield OptionSwitch("setting_simulate", "Simulation Mode")
+            yield OptionSwitch("setting_asfv1_clamp", "Clamp Values (asfv1)")
+            yield OptionSwitch("setting_asfv1_spinreals", "Spin Reals (asfv1)")
+            yield OptionSwitch("setting_disfv1_relative", "Use Relative SKP Targets (disfv1)")
+            yield OptionSwitch("setting_disfv1_suppressraw", "Convert Invalid Statements to NOP (disfv1)")
+
+
 class ConsoleLogStream:
     def __init__(self, log_cb) -> None:
         self.log = log_cb
@@ -140,16 +182,30 @@ class MainScreen(Screen):
         ("ctrl+r", "read_eeprom", "Read EEPROM"),
         ("ctrl+w", "write_eeprom", "Write EEPROM"),
         ("f1", "app.toggle_class('TextLog', '-hidden')", "Show Log"),
+        ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
         Binding("ctrl+t", "paste", "Paste", show=False, priority=True),
     ]
 
+    show_sidebar = reactive(False)
+
     def compose(self) -> ComposeResult:
         with Container():
+            yield Sidebar(classes="-hidden")
             yield Header(show_clock=True)
             yield TextLog(id="consolelog", classes="-hidden", wrap=False, highlight=True, markup=True)
             yield ProgramTabs()
             yield Footer()
+
+    def action_toggle_sidebar(self) -> None:
+        sidebar = self.query_one(Sidebar)
+        self.set_focus(None)
+        if sidebar.has_class("-hidden"):
+            sidebar.remove_class("-hidden")
+        else:
+            if sidebar.query("*:focus"):
+                self.screen.set_focus(None)
+            sidebar.add_class("-hidden")
 
     def console_log(self, renderable: RenderableType) -> None:
         self.query_one(TextLog).write(renderable)
@@ -180,9 +236,17 @@ class MainScreen(Screen):
         self.app.logger.info("Write EEPROM (Not Implemented)")
 
     def action_paste(self) -> None:
-        # TODO - Validate program?
-        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
-        active_program_pane.program = FV1Program(pyperclip.paste())
+        # Validate program
+        new_program = FV1Program(pyperclip.paste())
+        bin_array, warnings, errors = new_program.assemble(clamp=self.app.setting_asfv1_clamp,
+                                                           spinreals=self.app.setting_asfv1_spinreals)
+        [self.app.logger.info(w) for w in warnings]
+        [self.app.logger.info(e) for e in errors]
+        if len(errors) == 0:
+            active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+            active_program_pane.program = FV1Program(pyperclip.paste())
+        else:
+            self.app.notify("Ignoring invalid clipboard contents")
 
 
 from dataclasses import dataclass
@@ -231,6 +295,17 @@ class FV1App(App[None]):
                                      True,
                                      False,
                                      True)
+
+        # Whether to use a programmer or just simulate
+        self.setting_simulate = True
+
+        # asfv1 options
+        self.setting_asfv1_clamp = True
+        self.setting_asfv1_spinreals = False
+
+        # disfv1 options
+        self.setting_disfv1_relative = False
+        self.setting_disfv1_suppressraw = False
 
         self.logger = logging.getLogger("FV1App")
         # Avoid all output being sent to the console as well
