@@ -14,9 +14,13 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code and submodules
       - uses: actions/checkout@v3
         with:
+          ref: ${{ github.event.inputs.branch }}
+          path: ${{ github.sha }}
           submodules: 'true'
+      - name: Setup Python
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
