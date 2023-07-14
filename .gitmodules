@@ -1,6 +1,6 @@
-[submodule ".\\asfv1"]
-	path = .\\asfv1
+[submodule "asfv1"]
+	path = asfv1
 	url = git@github.com:audiofab/asfv1.git
-[submodule ".\\disfv1"]
-	path = .\\disfv1
+[submodule "disfv1"]
+	path = disfv1
 	url = git@github.com:audiofab/disfv1.git
