@@ -74,4 +74,4 @@ def test_load_hex(i2c_ee):
 def test_load_file_fail(i2c_ee):
     this_path = pathlib.Path(__file__).parent.resolve()
     with pytest.raises(ValueError) as exc_info:
-        i2c_ee.load_file(this_path / '__init__.py', verify=True)
+        i2c_ee.load_file(this_path / 'dummy.txt', verify=True)
