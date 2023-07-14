@@ -17,8 +17,6 @@ jobs:
       - name: Checkout code and submodules
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.inputs.branch }}
-          path: ${{ github.sha }}
           submodules: 'true'
       - name: Setup Python
         uses: actions/setup-python@v4
