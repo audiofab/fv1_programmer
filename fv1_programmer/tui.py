@@ -178,8 +178,8 @@ class ConsoleLogStream:
 class MainScreen(Screen):
     TITLE = _title
     BINDINGS = [
-        ("ctrl+l", "load_file", "Load File"),
-        ("ctrl+r", "read_eeprom", "Read EEPROM"),
+        # ("ctrl+l", "load_file", "Load File"),
+        # ("ctrl+r", "read_eeprom", "Read EEPROM"),
         ("ctrl+w", "write_eeprom", "Write EEPROM"),
         ("f1", "app.toggle_class('TextLog', '-hidden')", "Show Log"),
         ("f2", "toggle_sidebar", "Settings"),
@@ -234,15 +234,15 @@ class MainScreen(Screen):
         self.app.logger.info("Read EEPROM (Not Implemented)")
 
     def action_write_eeprom(self) -> None:
-        data_chunks = {}
+        programs = []
         for i in range(1,9):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
                 bin_array, warnings, errors = program_pane.program.assemble(
                                                             clamp=self.app.setting_asfv1_clamp,
                                                             spinreals=self.app.setting_asfv1_spinreals)
-                data_chunks[(i - 1)*512] = bin_array
-        if len(data_chunks) == 0:
+                programs.append({"program": i, "address" : (i - 1)*512, "data" : bin_array})
+        if len(programs) == 0:
             self.app.notify("Nothing to do!")
         else:
             eeprom = None
@@ -253,15 +253,22 @@ class MainScreen(Screen):
                 from adaptor.mcp2221 import MCP2221I2CAdaptor
                 from eeprom.eeprom import I2CEEPROM
                 adaptor = MCP2221I2CAdaptor(0x50, i2c_clock_speed=100000)
-                adaptor.open()
-                eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
+                try:
+                    adaptor.open()
+                    eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
+                except:
+                    self.app.notify("Failed to find an FV-1 programmer!")
 
-            assert eeprom is not None
-            total_bytes = 0
-            for addr, data in data_chunks.items():
-                eeprom.write_bytes(addr, data)
-                total_bytes += len(data)
-                self.app.notify(f"Wrote {total_bytes} bytes to program {addr // 512 + 1}")
+            if eeprom is not None:
+                total_bytes = 0
+                for program in programs:
+                    addr = program["address"]
+                    data = program["data"]
+                    eeprom.write_bytes(addr, data)
+                    total_bytes += len(data)
+                    self.app.notify(f"Wrote {len(data)} bytes to program {addr // 512 + 1}")
+
+                self.app.notify(f"Wrote {total_bytes} bytes to program slots {[w['program'] for w in programs]}{' (simulation)' if self.app.setting_simulate else ''}")
 
     def action_paste(self) -> None:
         # Validate program
@@ -329,7 +336,7 @@ class FV1App(App[None]):
                                      True)
 
         # Whether to use a programmer or just simulate
-        self.setting_simulate = True
+        self.setting_simulate = False
 
         # asfv1 options
         self.setting_asfv1_clamp = True
