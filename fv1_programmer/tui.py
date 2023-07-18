@@ -89,7 +89,7 @@ class FV1ProgramPane(Widget):
         self.query_one(Markdown).update(markdown)
 
     def on_mount(self) -> None:
-        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
+        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+V/Ctrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
 
 class ProgramTabs(Widget):
     def compose(self) -> ComposeResult:  
@@ -184,6 +184,7 @@ class MainScreen(Screen):
         ("f1", "app.toggle_class('TextLog', '-hidden')", "Show Log"),
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
+        Binding("ctrl+v", "paste", "Paste", show=False, priority=True),
         Binding("ctrl+t", "paste", "Paste", show=False, priority=True),
         Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
     ]
@@ -243,7 +244,7 @@ class MainScreen(Screen):
                                                             spinreals=self.app.setting_asfv1_spinreals)
                 programs.append({"program": i, "address" : (i - 1)*512, "data" : bin_array})
         if len(programs) == 0:
-            self.app.notify("Nothing to do!")
+            self.app.show_toast("Nothing to do!", severity="warning")
         else:
             eeprom = None
             if self.app.setting_simulate:
@@ -256,8 +257,9 @@ class MainScreen(Screen):
                 try:
                     adaptor.open()
                     eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
-                except:
-                    self.app.notify("Failed to find an FV-1 programmer!")
+                except Exception as e:
+                    self.app.logger.error(str(e))
+                    self.app.show_toast("Failed to find Easy Spin! See log for details.", title="Error", severity="error")
 
             if eeprom is not None:
                 total_bytes = 0
@@ -266,9 +268,9 @@ class MainScreen(Screen):
                     data = program["data"]
                     eeprom.write_bytes(addr, data)
                     total_bytes += len(data)
-                    self.app.notify(f"Wrote {len(data)} bytes to program {addr // 512 + 1}")
+                    # self.app.show_toast(f"Wrote {len(data)} bytes to program {addr // 512 + 1}")
 
-                self.app.notify(f"Wrote {total_bytes} bytes to program slots {[w['program'] for w in programs]}{' (simulation)' if self.app.setting_simulate else ''}")
+                self.app.show_toast(f"Wrote {total_bytes} bytes to program slots {[w['program'] for w in programs]}{' (simulation)' if self.app.setting_simulate else ''}")
 
     def action_paste(self) -> None:
         # Validate program
@@ -281,7 +283,7 @@ class MainScreen(Screen):
             active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
             active_program_pane.program = FV1Program(pyperclip.paste())
         else:
-            self.app.notify("Ignoring invalid clipboard contents")
+            self.app.show_toast("Ignoring invalid clipboard contents. See log for details.")
 
     def action_delete(self) -> None:
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
@@ -303,14 +305,6 @@ class Args:
     verify:bool
     debug:bool
     sim:bool
-
-
-class Notification(Static):
-    def on_mount(self) -> None:
-        self.set_timer(3, self.remove)
-
-    def on_click(self) -> None:
-        self.remove()
 
 
 class FV1App(App[None]):
@@ -364,7 +358,7 @@ class FV1App(App[None]):
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         if active_program_pane.program is not None:
             pyperclip.copy(active_program_pane.program.asm)
-            self.notify("Current program copied to clipboard")
+            self.show_toast("Current program copied to clipboard")
 
     def do_exit(self, result = None) -> None:
         super().exit(result)
@@ -372,6 +366,6 @@ class FV1App(App[None]):
     def on_mount(self) -> None:
         self.push_screen("main")
 
-    def notify(self, message) -> None:
+    def show_toast(self, message, title=None, severity="information", timeout=4.0) -> None:
         self.logger.info(message)
-        self.screen.mount(Notification(message))
+        self.notify(message, title=title, severity=severity, timeout=timeout)

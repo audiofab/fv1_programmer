@@ -3,24 +3,12 @@
 }
 
 Screen {
-    layers: base overlay top notifications;
+    layers: base overlay top;
     overflow: hidden;
 }
 
 Footer {
     layer: top;
-}
-
-Notification {
-    dock: bottom;
-    layer: notification;
-    width: auto;
-    margin: 2 4;
-    padding: 1 2;
-    background: $background;
-    color: $text;
-    height: auto;
-    
 }
 
 Sidebar {
