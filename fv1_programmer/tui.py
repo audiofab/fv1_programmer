@@ -1,14 +1,18 @@
 from __future__ import annotations
 import logging
+import json
 
 from rich.console import RenderableType
 
 from textual import on
+from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Grid, Horizontal, Vertical
 from textual.screen import Screen, ModalScreen
+from textual.worker import Worker, get_current_worker
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import (
     Footer,
@@ -21,6 +25,8 @@ from textual.widgets import (
     Switch,
     Markdown,
     DirectoryTree,
+    Label,
+    LoadingIndicator,
 )
 
 from typing import Iterable
@@ -29,16 +35,28 @@ from fv1_programmer.fv1 import EMPTY_FV1_PROGRAM_ASM, FV1Program, FV1FS
 import pyperclip
 
 
-__version__ = "0.1.0"
+__version__ = "0.2.5"
 
 _title = "FV1 Programmer"
+
+class BusyScreen(ModalScreen):
+    def __init__(self, message : str) -> None:
+        self.message = message
+        super().__init__(id)
+
+    def compose(self) -> ComposeResult:
+        yield Grid(
+            Label(self.message),
+            LoadingIndicator(),
+            id="busyscreen"
+        )
 
 
 class FilteredDirectoryTree(DirectoryTree):
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         return [path for path in paths if not path.name.startswith(".") and \
                     # TODO: Support SpinCAD file types as well!
-                    path.is_dir() or (path.is_file() and path.suffix.lower() in ['.hex', '.bin'])]
+                    path.is_dir() or (path.is_file() and path.suffix.lower() in ['.json'])]
 
 
 class FileSelectionScreen(ModalScreen[Path]):
@@ -178,8 +196,9 @@ class ConsoleLogStream:
 class MainScreen(Screen):
     TITLE = _title
     BINDINGS = [
-        # ("ctrl+l", "load_file", "Load File"),
+        ("ctrl+l", "load_file", "Load File"),
         # ("ctrl+r", "read_eeprom", "Read EEPROM"),
+        ("ctrl+s", "save", "Save"),
         ("ctrl+w", "write_eeprom", "Write EEPROM"),
         ("f1", "app.toggle_class('TextLog', '-hidden')", "Show Log"),
         ("f2", "toggle_sidebar", "Settings"),
@@ -190,6 +209,12 @@ class MainScreen(Screen):
     ]
 
     show_sidebar = reactive(False)
+
+    class WriteEepromResult(Message):
+        def __init__(self, programs : Iterable[dict], error=None) -> None:
+            self.programs = programs
+            self.error = error
+            super().__init__()
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -227,12 +252,33 @@ class MainScreen(Screen):
 
     def action_load_file(self) -> None:
         def handle_load_file(path : Path) -> None:
-            self.app.logger.info(path)
+            if path.exists() and path.is_file():
+                with open(str(path), 'r') as f:
+                    d = json.load(f)
+                    programs = d.get("programs", [None]*8)
+                    for i in range(1,9):
+                        program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
+                        if programs[i - 1] is not None:
+                            program_pane.program = FV1Program(programs[i - 1])
+            self.app.show_toast(f"Loaded programs from {path}")
 
         self.app.push_screen(FileSelectionScreen(), handle_load_file)
 
     def action_read_eeprom(self) -> None:
         self.app.logger.info("Read EEPROM (Not Implemented)")
+
+    def action_save(self) -> None:
+        d = {"programs" : []}
+
+        for i in range(1,9):
+            program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
+            d["programs"].append(program_pane.program.asm if program_pane.program is not None else None)
+
+        fname = 'fv1_programs.json'
+        with open(fname, 'w') as f:
+            json.dump(d, f, indent=2)
+            self.app.show_toast(f"Programs saved to {fname}")
+
 
     def action_write_eeprom(self) -> None:
         programs = []
@@ -246,31 +292,45 @@ class MainScreen(Screen):
         if len(programs) == 0:
             self.app.show_toast("Nothing to do!", severity="warning")
         else:
-            eeprom = None
-            if self.app.setting_simulate:
-                from eeprom.eeprom import DummyEEPROM
-                eeprom = DummyEEPROM(Path('sim.bin'), 4096)
-            else:
-                from adaptor.mcp2221 import MCP2221I2CAdaptor
-                from eeprom.eeprom import I2CEEPROM
+            self.app.push_screen(BusyScreen("Downloading to pedal..."))
+            self.write_eeprom(programs, self.app.setting_simulate)
+
+    @work(exclusive=True)
+    def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
+        worker = get_current_worker()
+        eeprom = None
+        if self.app.setting_simulate:
+            from eeprom.eeprom import DummyEEPROM
+            eeprom = DummyEEPROM(Path('sim.bin'), 4096)
+        else:
+            from adaptor.mcp2221 import MCP2221I2CAdaptor
+            from eeprom.eeprom import I2CEEPROM
+            try:
                 adaptor = MCP2221I2CAdaptor(0x50, i2c_clock_speed=100000)
-                try:
-                    adaptor.open()
-                    eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
-                except Exception as e:
-                    self.app.logger.error(str(e))
-                    self.app.show_toast("Failed to find Easy Spin! See log for details.", title="Error", severity="error")
+                adaptor.open()
+                eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
+            except Exception as e:
+                if not worker.is_cancelled:
+                    self.post_message(self.WriteEepromResult(programs, error=e))
 
-            if eeprom is not None:
-                total_bytes = 0
-                for program in programs:
-                    addr = program["address"]
-                    data = program["data"]
-                    eeprom.write_bytes(addr, data)
-                    total_bytes += len(data)
-                    # self.app.show_toast(f"Wrote {len(data)} bytes to program {addr // 512 + 1}")
+        if eeprom is not None:
+            for program in programs:
+                addr = program["address"]
+                data = program["data"]
+                eeprom.write_bytes(addr, data)
 
-                self.app.show_toast(f"Wrote {total_bytes} bytes to program slots {[w['program'] for w in programs]}{' (simulation)' if self.app.setting_simulate else ''}")
+            if not worker.is_cancelled:
+                self.post_message(self.WriteEepromResult(programs))
+
+    def on_main_screen_write_eeprom_result(self, message : MainScreen.WriteEepromResult) -> None:
+        """Called when the worker state changes."""
+        self.app.pop_screen()
+        if message.error is not None:
+            self.app.logger.error(str(message.error))
+            self.app.show_toast("Failed to find Easy Spin! See log for details.", title="Error", severity="error")
+        else:
+            # total_bytes = sum([len(w["data"]) for w in message.programs])
+            self.app.show_toast(f"Wrote to program slots {[w['program'] for w in message.programs]}{' (simulation)' if self.app.setting_simulate else ''}")
 
     def action_paste(self) -> None:
         # Validate program

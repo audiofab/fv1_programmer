@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fv1-programmer"
-version = "0.2.4"
+version = "0.2.5"
 description = "An EEPROM programming tool for the FV-1 DSP"
 authors = ["Mark Melvin <mark.melvin@audiofab.com>"]
 readme = "README.md"
@@ -29,13 +29,14 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.8"
-textual = {extras = ["dev"], version = "^0.30.0"}
+textual = "^0.30.0"
 easymcp2221 = "^1.6.2"
 intelhex = "^2.3.0"
 pyperclip = "^1.8.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.0"
+textual-dev = "^1.0.1"
 
 [tool.pytest.ini_options]
 pythonpath = [
