@@ -25,8 +25,10 @@ from textual.widgets import (
     Switch,
     Markdown,
     DirectoryTree,
+    Tree,
     Label,
     LoadingIndicator,
+    Input,
 )
 
 from typing import Iterable
@@ -42,7 +44,7 @@ _title = "FV1 Programmer"
 class BusyScreen(ModalScreen):
     def __init__(self, message : str) -> None:
         self.message = message
-        super().__init__(id)
+        super().__init__()
 
     def compose(self) -> ComposeResult:
         yield Grid(
@@ -53,23 +55,30 @@ class BusyScreen(ModalScreen):
 
 
 class FilteredDirectoryTree(DirectoryTree):
+    def __init__(self, *args, **kwargs):
+        self.valid_suffixes = []
+        try:
+            self.valid_suffixes = kwargs.pop("valid_suffixes")
+        except KeyError:
+            pass
+        super().__init__(*args, **kwargs)
+
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         return [path for path in paths if not path.name.startswith(".") and \
                     # TODO: Support SpinCAD file types as well!
-                    path.is_dir() or (path.is_file() and path.suffix.lower() in ['.json'])]
+                    path.is_dir() or (path.is_file() and path.suffix.lower() in self.valid_suffixes)]
 
 
-class FileSelectionScreen(ModalScreen[Path]):
+class LoadFileScreen(ModalScreen[Path]):
     selection : reactive[Path | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
-        # TODO: Support setting the root folder and drive
         yield Grid(
             Static("Choose a file:", id="fileselectlabel"),
-            FilteredDirectoryTree("./", id="filetree"),
-            Button("Cancel", variant="primary", id="cancel"),
-            Button("Select", variant="primary", id="select"),
-            id="fileselectiondialog",
+            FilteredDirectoryTree("./", id="filetree", valid_suffixes=[".json"]),
+            Button("Cancel", variant="error", id="filedialogcancel"),
+            Button("Select", variant="primary", id="filedialogselect"),
+            id="filedialog",
         )
 
     @on(DirectoryTree.FileSelected, "#filetree")
@@ -79,16 +88,42 @@ class FileSelectionScreen(ModalScreen[Path]):
     def watch_selection(self, new_path: Path):
         self.selection = new_path
         enabled = self.selection is not None
-        select_button = self.query_one("#select", Button)
+        select_button = self.query_one("#filedialogselect", Button)
         select_button.disabled = not enabled
         if enabled:
             select_button.focus()
 
-    @on(Button.Pressed, "#select")
+    @on(Button.Pressed, "#filedialogselect")
     def do_select(self):
         self.dismiss(self.selection)
 
-    @on(Button.Pressed, "#cancel")
+    @on(Button.Pressed, "#filedialogcancel")
+    def cancel(self):
+        self.dismiss(None)
+
+
+class SaveFileScreen(ModalScreen[Path]):
+    filename : reactive("")
+
+    def compose(self) -> ComposeResult:
+        yield Grid(
+            Static("Please specify a filename:", id="fileselectlabel"),
+            Input("my_programs", id="filesavefilename"),
+            Button("Cancel", variant="error", id="filedialogcancel"),
+            Button("Save", variant="primary", id="filedialogselect"),
+            id="filesavedialog",
+        )
+
+    @on(Input.Changed)
+    def check_filename(self, event: Input.Changed) -> None:
+        self.query_one("#filedialogselect", Button).disabled = \
+                    len(self.query_one("#filesavefilename", Input).value) < 1
+
+    @on(Button.Pressed, "#filedialogselect")
+    def do_save(self):
+        self.dismiss(self.query_one("#filesavefilename", Input).value)
+
+    @on(Button.Pressed, "#filedialogcancel")
     def cancel(self):
         self.dismiss(None)
 
@@ -130,21 +165,31 @@ class ProgramTabs(Widget):
                 yield FV1ProgramPane(id="fv1prog8")
 
 
-class QuitScreen(ModalScreen[bool]):
+class YesNoScreen(ModalScreen[bool]):
+    def __init__(self, message, no_text="No", yes_text="Yes",
+                 no_variant="primary", yes_variant="primary",
+                 *args, **kwargs):
+        self.message = message
+        self.no_text = no_text
+        self.yes_text = yes_text
+        self.no_variant = no_variant
+        self.yes_variant = yes_variant
+        super().__init__(*args, **kwargs)
+
     def compose(self) -> ComposeResult:
         yield Grid(
-            Static("Are you sure you want to quit?", id="question"),
-            Button("Cancel", variant="primary", id="cancel"),
-            Button("Quit", variant="error", id="quit"),
-            id="quitdialog",
+            Static(self.message, id="yesnomessage"),
+            Button(self.no_text, variant=self.no_variant, id="yesnono"),
+            Button(self.yes_text, variant=self.yes_variant, id="yesnoyes"),
+            id="yesnodialog",
         )
 
-    @on(Button.Pressed, "#quit")
-    def quit(self):
+    @on(Button.Pressed, "#yesnoyes")
+    def yes(self):
         self.dismiss(True)
 
-    @on(Button.Pressed, "#cancel")
-    def cancel(self):
+    @on(Button.Pressed, "#yesnono")
+    def no(self):
         self.dismiss(False)
 
 
@@ -248,11 +293,12 @@ class MainScreen(Screen):
             if should_quit:
                 self.app.do_exit()
 
-        self.app.push_screen(QuitScreen(), check_quit)
+        self.app.push_screen(YesNoScreen("Are you sure you want to quit?",
+                                         yes_variant="error"), check_quit)
 
     def action_load_file(self) -> None:
         def handle_load_file(path : Path) -> None:
-            if path.exists() and path.is_file():
+            if path is not None and path.exists() and path.is_file():
                 with open(str(path), 'r') as f:
                     d = json.load(f)
                     programs = d.get("programs", [None]*8)
@@ -260,9 +306,9 @@ class MainScreen(Screen):
                         program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
                         if programs[i - 1] is not None:
                             program_pane.program = FV1Program(programs[i - 1])
-            self.app.show_toast(f"Loaded programs from {path}")
+                self.app.show_toast(f"Loaded programs from {path}")
 
-        self.app.push_screen(FileSelectionScreen(), handle_load_file)
+        self.app.push_screen(LoadFileScreen(), handle_load_file)
 
     def action_read_eeprom(self) -> None:
         self.app.logger.info("Read EEPROM (Not Implemented)")
@@ -274,11 +320,25 @@ class MainScreen(Screen):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             d["programs"].append(program_pane.program.asm if program_pane.program is not None else None)
 
-        fname = 'fv1_programs.json'
-        with open(fname, 'w') as f:
-            json.dump(d, f, indent=2)
-            self.app.show_toast(f"Programs saved to {fname}")
+        def handle_save_file(filename : str) -> None:
+            def do_save_file(file_path):
+                with open(file_path, 'w') as f:
+                    json.dump(d, f, indent=2)
+                    self.app.show_toast(f"Programs saved to {file_path}")
 
+            if filename is not None:
+                # Does filename already exist?
+                save_path = Path(Path(".") / filename if filename.endswith(".json") else f"{filename}.json")
+                if save_path.exists() and save_path.is_file():
+                    def check_overwrite(should_overwrite : bool) -> None:
+                        if should_overwrite:
+                            do_save_file(save_path)
+                    self.app.push_screen(YesNoScreen("File exists. Overwrite?"), check_overwrite)
+
+                else:
+                    do_save_file(save_path)
+
+        self.app.push_screen(SaveFileScreen(), handle_save_file)
 
     def action_write_eeprom(self) -> None:
         programs = []
@@ -323,7 +383,7 @@ class MainScreen(Screen):
                 self.post_message(self.WriteEepromResult(programs))
 
     def on_main_screen_write_eeprom_result(self, message : MainScreen.WriteEepromResult) -> None:
-        """Called when the worker state changes."""
+        """Called write eeprom operation is finished."""
         self.app.pop_screen()
         if message.error is not None:
             self.app.logger.error(str(message.error))
@@ -390,7 +450,7 @@ class FV1App(App[None]):
                                      True)
 
         # Whether to use a programmer or just simulate
-        self.setting_simulate = False
+        self.setting_simulate = True
 
         # asfv1 options
         self.setting_asfv1_clamp = True
