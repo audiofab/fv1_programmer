@@ -37,7 +37,7 @@ from fv1_programmer.fv1 import EMPTY_FV1_PROGRAM_ASM, FV1Program, FV1FS
 import pyperclip
 
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 _title = "FV1 Programmer"
 
