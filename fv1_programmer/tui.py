@@ -38,7 +38,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.2.6"
+__version__ = "0.2.7"
 
 _title = "FV1 Programmer"
 
