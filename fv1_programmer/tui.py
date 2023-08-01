@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import json
+import re
 
 from rich.console import RenderableType
 
@@ -262,8 +263,8 @@ class MainScreen(Screen):
             super().__init__()
 
     class ReadEepromResult(Message):
-        def __init__(self, error=None) -> None:
-            self.programs = None
+        def __init__(self, programs : Iterable[dict], error = None) -> None:
+            self.programs = programs
             self.error = error
             super().__init__()
 
@@ -365,7 +366,7 @@ class MainScreen(Screen):
         else:
             from adaptor.mcp2221 import MCP2221I2CAdaptor
             from eeprom.eeprom import I2CEEPROM
-            adaptor = MCP2221I2CAdaptor(self.app.cmdline_args.i2c_addr,
+            adaptor = MCP2221I2CAdaptor(self.app.cmdline_args.i2c_address,
                                         i2c_clock_speed=self.app.cmdline_args.i2c_clock_speed)
             adaptor.open()
             return I2CEEPROM(adaptor, self.app.cmdline_args.ee_size,
@@ -415,7 +416,9 @@ class MainScreen(Screen):
     def action_read_eeprom(self) -> None:
         def do_read_eeprom():
             self.app.push_screen(BusyScreen("Reading from pedal..."))
-            self.read_eeprom(self.app.setting_simulate)
+            self.read_eeprom(self.app.setting_simulate,
+                             self.app.setting_disfv1_relative,
+                             self.app.setting_disfv1_suppressraw)
 
         num_programs = 0
         for i in range(1,9):
@@ -434,19 +437,26 @@ class MainScreen(Screen):
             do_read_eeprom()
 
     @work(exclusive=True)
-    def read_eeprom(self, simulate : bool) -> None:
+    def read_eeprom(self, simulate : bool, relative : bool, suppressraw : bool) -> None:
         worker = get_current_worker()
+        eeprom = None
         try:
             eeprom = self._get_eeprom()
         except Exception as e:
             if not worker.is_cancelled:
-                self.post_message(self.ReadEepromResult(error=e))
+                self.post_message(self.ReadEepromResult({}, error=e))
 
         if eeprom is not None:
-            error = None
+            programs = []
+            program_data = eeprom.read_bytes(0, FV1_PROGRAM_MAX_BYTES*8)
+            for offset in range(0, 8*FV1_PROGRAM_MAX_BYTES, FV1_PROGRAM_MAX_BYTES):
+                program = FV1Program("")
+                warnings = program.from_bytearray(program_data[offset:offset + FV1_PROGRAM_MAX_BYTES],
+                                                  relative=relative, suppressraw=suppressraw)
+                programs.append({"program" : program, "warnings" : warnings})
 
             if not worker.is_cancelled:
-                self.post_message(self.ReadEepromResult(error=error))
+                self.post_message(self.ReadEepromResult(programs))
 
     def on_main_screen_read_eeprom_result(self, message : MainScreen.ReadEepromResult) -> None:
         """Called when a read eeprom operation is finished."""
@@ -454,8 +464,25 @@ class MainScreen(Screen):
         if message.error is not None:
             self.app.logger.error(str(message.error))
             self.app.show_toast("EEPROM read failed! See log for details.", title="Error", severity="error")
+            return
+
+        were_warnings = False
+        for i in range(1,9):
+            program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
+            program_pane.program = message.programs[i - 1]["program"]
+            warnings = message.programs[i - 1]["warnings"]
+            if warnings is not None:
+                for warning in warnings:
+                    self.app.logger.info(warning)
+                    m = re.match("info: Read (\d+) instructions\.", warning)
+                    # Only worry about real warnings
+                    if m.group(0) != warning:
+                        were_warnings = True
+
+        if were_warnings:
+            self.app.show_toast("EEPROM read succeeded with warnings. See log for details.", title="Warning", severity="warning")
         else:
-            self.app.show_toast("Not implemented!")
+            self.app.show_toast("EEPROM read complete.")
 
     def action_paste(self) -> None:
         # Validate program

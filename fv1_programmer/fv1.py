@@ -1,15 +1,7 @@
 from asfv1.asfv1 import fv1parse, ASFV1Error
+from disfv1.disfv1 import fv1deparse
 from typing import Tuple
 
-
-EMPTY_FV1_PROGRAM_ASM = """
-; Empty program
-
-start:
-    NOP
-end:
-    NOP
-"""
 
 FV1_PROGRAM_MAX_BYTES = 512
 
@@ -18,7 +10,10 @@ class FV1Program(object):
         self.asm = asm
 
     def assemble(self, clamp=True, spinreals=False) -> Tuple[bytearray, str, str]:
- 
+        """
+        Assembles our internal asm to a bytearray, returning any errors and warnings
+        as concatenated strings.
+        """
         warnings = []
         errors = []
 
@@ -42,32 +37,26 @@ class FV1Program(object):
 
         return fp.program, warnings, errors
 
+    def from_bytearray(self, data : bytearray, relative=False, suppressraw=False) -> str:
+        """
+        Disassembles a binary FV1 program and sets the internal asm property to
+        the disassembled output. Returns any warnings in a concatenated string.
+        """
+        warnings = []
+
+        def warning(msg):
+            nonlocal warnings
+            warnings.append(msg)
+
+        fp = fv1deparse(data,
+                        relative=relative, nopraw=suppressraw,
+                        wfunc=warning)
+        fp.deparse()
+        self.asm = fp.listing
+
+        return warnings
+
     def as_markdown(self,) -> str:
         return f"""```
 {self.asm}
 ```"""
-
-
-class FV1FS(object):
-    """
-    A utility class representing the filesystem supported by the FV-1.
-
-    The EEPROM image supported by the FV-1 is effectively 8 chunks of
-    EEPROM of equal size (128 32-bit words each) containing the machine
-    code for 8 different presets.
-    """
-    def __init__(self, adaptor=None) -> None:
-        """
-        Create an FV1 filesystem. If adaptor is None, this will operate in simulation mode.
-        """
-        self.adaptor = adaptor
-
-#     def set_eeprom()
-
-# def __get_eeprom(args, adaptor):
-#     if args.sim:
-#         from eeprom.eeprom import DummyEEPROM
-#         return DummyEEPROM(args.sim, args.ee_size)
-
-#     from eeprom.eeprom import I2CEEPROM
-#     return I2CEEPROM(adaptor, args.ee_size, page_size_in_bytes=args.ee_page_size)
