@@ -33,7 +33,7 @@ from textual.widgets import (
 
 from typing import Iterable
 from pathlib import Path
-from fv1_programmer.fv1 import EMPTY_FV1_PROGRAM_ASM, FV1Program, FV1FS
+from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
@@ -222,7 +222,6 @@ class Sidebar(Container):
     def compose(self) -> ComposeResult:
         with VerticalScroll():
             yield Title("Settings")
-            yield OptionSwitch("setting_simulate", "Simulation Mode")
             yield OptionSwitch("setting_verify_writes", "Verify Writes")
             yield OptionSwitch("setting_asfv1_clamp", "Clamp Values (asfv1)")
             yield OptionSwitch("setting_asfv1_spinreals", "Spin Reals (asfv1)")
@@ -242,11 +241,11 @@ class ConsoleLogStream:
 class MainScreen(Screen):
     TITLE = _title
     BINDINGS = [
-        ("ctrl+l", "load_file", "Load File"),
-        # ("ctrl+r", "read_eeprom", "Read EEPROM"),
+        ("ctrl+l", "load_file", "Load"),
         ("ctrl+s", "save", "Save"),
-        ("ctrl+w", "write_eeprom", "Write EEPROM"),
-        ("f1", "app.toggle_class('TextLog', '-hidden')", "Show Log"),
+        ("ctrl+r", "read_eeprom", "Read"),
+        ("ctrl+w", "write_eeprom", "Write"),
+        ("f1", "app.toggle_class('TextLog', '-hidden')", "Log"),
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
         Binding("ctrl+v", "paste", "Paste", show=False, priority=True),
@@ -259,6 +258,12 @@ class MainScreen(Screen):
     class WriteEepromResult(Message):
         def __init__(self, programs : Iterable[dict], error=None) -> None:
             self.programs = programs
+            self.error = error
+            super().__init__()
+
+    class ReadEepromResult(Message):
+        def __init__(self, error=None) -> None:
+            self.programs = None
             self.error = error
             super().__init__()
 
@@ -311,9 +316,6 @@ class MainScreen(Screen):
 
         self.app.push_screen(LoadFileScreen(), handle_load_file)
 
-    def action_read_eeprom(self) -> None:
-        self.app.logger.info("Read EEPROM (Not Implemented)")
-
     def action_save(self) -> None:
         d = {"programs" : []}
 
@@ -349,30 +351,34 @@ class MainScreen(Screen):
                 bin_array, warnings, errors = program_pane.program.assemble(
                                                             clamp=self.app.setting_asfv1_clamp,
                                                             spinreals=self.app.setting_asfv1_spinreals)
-                programs.append({"program": i, "address" : (i - 1)*512, "data" : bin_array})
+                programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
         if len(programs) == 0:
             self.app.show_toast("Nothing to do!", severity="warning")
         else:
             self.app.push_screen(BusyScreen("Downloading to pedal..."))
             self.write_eeprom(programs, self.app.setting_simulate)
 
-    @work(exclusive=True)
-    def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
-        worker = get_current_worker()
-        eeprom = None
+    def _get_eeprom(self,):
         if self.app.setting_simulate:
             from eeprom.eeprom import DummyEEPROM
-            eeprom = DummyEEPROM(Path('sim.bin'), 4096)
+            return DummyEEPROM(Path(self.app.cmdline_args.sim), self.app.cmdline_args.ee_size)
         else:
             from adaptor.mcp2221 import MCP2221I2CAdaptor
             from eeprom.eeprom import I2CEEPROM
-            try:
-                adaptor = MCP2221I2CAdaptor(0x50, i2c_clock_speed=100000)
-                adaptor.open()
-                eeprom = I2CEEPROM(adaptor, 4096, page_size_in_bytes=32)
-            except Exception as e:
-                if not worker.is_cancelled:
-                    self.post_message(self.WriteEepromResult(programs, error=e))
+            adaptor = MCP2221I2CAdaptor(self.app.cmdline_args.i2c_addr,
+                                        i2c_clock_speed=self.app.cmdline_args.i2c_clock_speed)
+            adaptor.open()
+            return I2CEEPROM(adaptor, self.app.cmdline_args.ee_size,
+                             page_size_in_bytes=self.app.cmdline_args.ee_page_size)
+
+    @work(exclusive=True)
+    def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
+        worker = get_current_worker()
+        try:
+            eeprom = self._get_eeprom()
+        except Exception as e:
+            if not worker.is_cancelled:
+                self.post_message(self.WriteEepromResult(programs, error=e))
 
         if eeprom is not None:
             for program in programs:
@@ -395,7 +401,7 @@ class MainScreen(Screen):
                 self.post_message(self.WriteEepromResult(programs, error=error))
 
     def on_main_screen_write_eeprom_result(self, message : MainScreen.WriteEepromResult) -> None:
-        """Called write eeprom operation is finished."""
+        """Called when a write eeprom operation is finished."""
         self.app.pop_screen()
         if message.error is not None:
             self.app.logger.error(str(message.error))
@@ -406,6 +412,50 @@ class MainScreen(Screen):
             if self.app.setting_verify_writes:
                 self.app.logger.info("All programs verified successfully.")
 
+    def action_read_eeprom(self) -> None:
+        def do_read_eeprom():
+            self.app.push_screen(BusyScreen("Reading from pedal..."))
+            self.read_eeprom(self.app.setting_simulate)
+
+        num_programs = 0
+        for i in range(1,9):
+            program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
+            if program_pane.program is not None:
+                num_programs += 1
+
+        if num_programs > 0:
+            # Ask the user if they want to overwrite their current programs
+            def check_overwrite(should_overwrite : bool) -> None:
+                if should_overwrite:
+                    do_read_eeprom()
+            self.app.push_screen(YesNoScreen("This will overwrite your current programs.\nAre you sure?"), check_overwrite)
+
+        else:
+            do_read_eeprom()
+
+    @work(exclusive=True)
+    def read_eeprom(self, simulate : bool) -> None:
+        worker = get_current_worker()
+        try:
+            eeprom = self._get_eeprom()
+        except Exception as e:
+            if not worker.is_cancelled:
+                self.post_message(self.ReadEepromResult(error=e))
+
+        if eeprom is not None:
+            error = None
+
+            if not worker.is_cancelled:
+                self.post_message(self.ReadEepromResult(error=error))
+
+    def on_main_screen_read_eeprom_result(self, message : MainScreen.ReadEepromResult) -> None:
+        """Called when a read eeprom operation is finished."""
+        self.app.pop_screen()
+        if message.error is not None:
+            self.app.logger.error(str(message.error))
+            self.app.show_toast("EEPROM read failed! See log for details.", title="Error", severity="error")
+        else:
+            self.app.show_toast("Not implemented!")
 
     def action_paste(self) -> None:
         # Validate program
@@ -429,17 +479,14 @@ from dataclasses import dataclass
 @dataclass
 class Args:
     """Class emulating command line arguments to allow running via `textual run --dev`"""
-    programmer:str
     i2c_addr:int
     i2c_clock_speed:int
     ee_size:int
     ee_page_size:int
     pad_value:int
-    load_File:Path
-    save_File:Path
     verify:bool
     debug:bool
-    sim:bool
+    sim:Path
 
 
 class FV1App(App[None]):
@@ -452,21 +499,18 @@ class FV1App(App[None]):
 
         # See if we're being run by `textual run --dev`
         if 'devtools' in self.features:
-            self.cmdline_args = Args('MCP2221',
-                                     0x50,
+            self.cmdline_args = Args(0x50,
                                      100000,
                                      4096,
                                      32,
                                      0xFF,
-                                     None,
-                                     None,
                                      True,
                                      False,
-                                     True)
+                                     Path('backup.bin'))
 
         # Whether to use a programmer or just simulate
-        self.setting_simulate = False
-        self.setting_verify_writes = True
+        self.setting_simulate = self.cmdline_args.sim is not None
+        self.setting_verify_writes = self.cmdline_args.verify
 
         # asfv1 options
         self.setting_asfv1_clamp = True
@@ -485,8 +529,6 @@ class FV1App(App[None]):
             fh.setLevel(logging.DEBUG)
             fh.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
             self.logger.addHandler(fh)
-
-        self.EEPROM = None
 
     # Intercept the app exit (the only thing connected to this should be Ctrl+C)
     # and make it behave like Copy

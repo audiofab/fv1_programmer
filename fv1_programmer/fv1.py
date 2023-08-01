@@ -11,6 +11,8 @@ end:
     NOP
 """
 
+FV1_PROGRAM_MAX_BYTES = 512
+
 class FV1Program(object):
     def __init__(self, asm) -> None:
         self.asm = asm
