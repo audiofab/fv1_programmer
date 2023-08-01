@@ -9,7 +9,7 @@ from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, Vertical
+from textual.containers import Container, Grid, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen, ModalScreen
 from textual.worker import Worker, get_current_worker
 from textual.message import Message
@@ -220,9 +220,10 @@ class OptionSwitch(Horizontal):
 
 class Sidebar(Container):
     def compose(self) -> ComposeResult:
-        with Vertical():
+        with VerticalScroll():
             yield Title("Settings")
             yield OptionSwitch("setting_simulate", "Simulation Mode")
+            yield OptionSwitch("setting_verify_writes", "Verify Writes")
             yield OptionSwitch("setting_asfv1_clamp", "Clamp Values (asfv1)")
             yield OptionSwitch("setting_asfv1_spinreals", "Spin Reals (asfv1)")
             yield OptionSwitch("setting_disfv1_relative", "Use Relative SKP Targets (disfv1)")
@@ -379,18 +380,32 @@ class MainScreen(Screen):
                 data = program["data"]
                 eeprom.write_bytes(addr, data)
 
+            error = None
+            # Read back all the data and verify
+            if self.app.setting_verify_writes:
+                for program in programs:
+                    addr = program["address"]
+                    data = program["data"]
+                    read_data = eeprom.read_bytes(addr, len(data))
+                    if read_data != data:
+                        error = ValueError("EEPROM write failed verification!")
+                        break
+
             if not worker.is_cancelled:
-                self.post_message(self.WriteEepromResult(programs))
+                self.post_message(self.WriteEepromResult(programs, error=error))
 
     def on_main_screen_write_eeprom_result(self, message : MainScreen.WriteEepromResult) -> None:
         """Called write eeprom operation is finished."""
         self.app.pop_screen()
         if message.error is not None:
             self.app.logger.error(str(message.error))
-            self.app.show_toast("Failed to find Easy Spin! See log for details.", title="Error", severity="error")
+            self.app.show_toast("EEPROM write failed! See log for details.", title="Error", severity="error")
         else:
             # total_bytes = sum([len(w["data"]) for w in message.programs])
             self.app.show_toast(f"Wrote to program slots {[w['program'] for w in message.programs]}{' (simulation)' if self.app.setting_simulate else ''}")
+            if self.app.setting_verify_writes:
+                self.app.logger.info("All programs verified successfully.")
+
 
     def action_paste(self) -> None:
         # Validate program
@@ -450,7 +465,8 @@ class FV1App(App[None]):
                                      True)
 
         # Whether to use a programmer or just simulate
-        self.setting_simulate = True
+        self.setting_simulate = False
+        self.setting_verify_writes = True
 
         # asfv1 options
         self.setting_asfv1_clamp = True
