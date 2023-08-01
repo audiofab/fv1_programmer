@@ -38,7 +38,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 
 _title = "FV1 Programmer"
 
@@ -375,6 +375,7 @@ class MainScreen(Screen):
     @work(exclusive=True)
     def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
         worker = get_current_worker()
+        eeprom = None
         try:
             eeprom = self._get_eeprom()
         except Exception as e:
