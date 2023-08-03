@@ -4,15 +4,17 @@ An EEPROM programming tool for the [Audiofab](https://audiofab.com/) [Easy Spin]
 
 # Installation
 
-The easiest and cleanest way to install this demo is with [pipx](https://pypa.github.io/pipx/):
+This utility requires Python 3.8 or greater and has been tested on Windows, but should also work on MacOS and Linux. 
 
-`pipx install fv1-programmer`
-
-You can also install with pip (but it will install a bunch of dependencies directly into your Python environment):
+The easiest way to install this utility is with Python's built-in pip but it will also install a bunch of dependencies directly into your Python environment:
 
 `pip install fv1-programmer`
 
-Either way, you will now have a `fv1_programmer` command on your path, which you can run in a terminal:
+If you care about a clean Python environment, a cleaner way to install this utility is to first install [pipx](https://pypa.github.io/pipx/), and then install it with:
+
+`pipx install fv1-programmer`
+
+Either way, you will now have a `fv1_programmer` command on your path, which you can run in a terminal ([Windows Terminal](https://aka.ms/terminal) highly recommended on Windows):
 
 ```
 $ fv1_programmer
@@ -22,6 +24,6 @@ This will bring up a user interface that will allow you to configure all 8 progr
 
 ![image](https://github.com/audiofab/fv1_programmer/assets/1384978/36d8e9b9-4fe6-4cc4-b7b3-194910aaff97)
 
-This tool was made possible by the amazing [Textual](https://textual.textualize.io/) project. Check it out!
+This utility was made possible by the amazing [Textual](https://textual.textualize.io/) project. Check it out!
 
-This tool also leverages the excellent FV-1 assembler ([asfv1](https://github.com/ndf-zz/asfv1)) and disassembler ([disfv1](https://github.com/ndf-zz/disfv1)).
+This utility also leverages the excellent FV-1 assembler ([asfv1](https://github.com/ndf-zz/asfv1)) and disassembler ([disfv1](https://github.com/ndf-zz/disfv1)).
