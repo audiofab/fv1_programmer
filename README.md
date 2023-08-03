@@ -19,3 +19,5 @@ $ fv1_programmer
 ```
 
 This will bring up a user interface that will allow you to configure all 8 program slots of the FV-1 DSP and write the EEPROM.
+
+![image](https://github.com/audiofab/fv1_programmer/assets/1384978/36d8e9b9-4fe6-4cc4-b7b3-194910aaff97)
