@@ -38,7 +38,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.2.8"
+__version__ = "0.3.0"
 
 _title = "FV1 Programmer"
 
@@ -573,5 +573,4 @@ class FV1App(App[None]):
         self.push_screen("main")
 
     def show_toast(self, message, title=None, severity="information", timeout=4.0) -> None:
-        self.logger.info(message)
         self.notify(message, title=title, severity=severity, timeout=timeout)
