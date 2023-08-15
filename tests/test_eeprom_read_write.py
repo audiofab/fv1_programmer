@@ -3,7 +3,7 @@ import secrets
 import pathlib
 
 from adaptor.mcp2221 import MCP2221I2CAdaptor
-from eeprom.eeprom import I2CEEPROM
+from eeprom.eeprom import EEPROM, I2CEEPROM
 
 
 @pytest.fixture
@@ -15,6 +15,22 @@ def adaptor():
 @pytest.fixture
 def i2c_ee(adaptor):
     yield I2CEEPROM(adaptor, size_in_bytes=4096, page_size_in_bytes=32)
+
+
+def test_split_transaction():
+    transactions = EEPROM.split_transaction(32, 0, 4096)
+    expected = []
+    for addr in range(0, 4096, 32):
+        expected.append((addr, addr, 32))
+    assert transactions == expected
+
+    transactions = EEPROM.split_transaction(65535, 0, 4096)
+    expected = [(0, 0, 4096)]
+    assert transactions == expected
+
+    transactions = EEPROM.split_transaction(65535, 0, 512)
+    expected = [(0, 0, 512)]
+    assert transactions == expected
 
 
 def test_erase_EEPROM(i2c_ee):
@@ -61,6 +77,41 @@ def test_partial_write(i2c_ee):
     i2c_ee.write_bytes(0, _rand)
     _read = i2c_ee.read_bytes(0, i2c_ee.size)
     assert _read == _rand
+
+
+def test_write_and_verify_in_chunks(i2c_ee):
+    # Erase EEPROM
+    i2c_ee.erase(0xFF, verify=True)
+
+    _read = i2c_ee.read_bytes(0, i2c_ee.size)
+
+    _rand = secrets.token_bytes(4096)
+    assert _read != _rand
+
+    for addr in range(0, i2c_ee.size, 512):
+        i2c_ee.write_bytes(addr, _rand[addr:addr+512])
+
+    for addr in range(0, i2c_ee.size, 512):
+        _read = i2c_ee.read_bytes(addr, 512)
+        assert _read == _rand[addr:addr+512]
+
+
+def test_write_in_chunks_and_verify_in_one_shot(i2c_ee):
+    # Erase EEPROM
+    i2c_ee.erase(0xFF, verify=True)
+
+    _read = i2c_ee.read_bytes(0, i2c_ee.size)
+
+    _rand = secrets.token_bytes(4096)
+    assert _read != _rand
+
+    for addr in range(0, i2c_ee.size, 512):
+        i2c_ee.write_bytes(addr, _rand[addr:addr+512])
+
+    _read = i2c_ee.read_bytes(0, i2c_ee.size)
+
+    for addr in range(0, i2c_ee.size, 512):
+        assert _read[addr:addr+512] == _rand[addr:addr+512]
 
 
 def test_load_bin(i2c_ee):
