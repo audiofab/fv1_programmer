@@ -132,13 +132,7 @@ class EEPROM(ABC):
 
 class I2CEEPROM(EEPROM):
     def read_bytes(self, byte_address, num_bytes):
-        _bytes = b''
-        for _addr, _offset, _len in EEPROM.split_transaction(_MAX_TRANSACTION_SIZE, byte_address, num_bytes):
-            # logger.debug(_addr, _offset, _len)
-            # Send the 16-bit byte address followed by the read
-            _bytes += self.adaptor.write_then_read_bytes(_addr.to_bytes(2, 'big'), _len)
-
-        return _bytes
+        return self.adaptor.write_then_read_bytes(byte_address.to_bytes(2, 'big'), num_bytes)
 
     def write_bytes(self, byte_address, byte_list):
         # Perform the write, split on page boundaries
