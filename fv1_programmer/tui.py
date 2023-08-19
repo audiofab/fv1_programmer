@@ -2,10 +2,12 @@ from __future__ import annotations
 import logging
 import json
 import re
+import os
+import shlex
 
 from rich.console import RenderableType
 
-from textual import on
+from textual import events, on
 from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
@@ -144,6 +146,8 @@ class FV1ProgramPane(Widget):
 
     def on_mount(self) -> None:
         self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+V/Ctrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
+
+
 
 class ProgramTabs(Widget):
     def compose(self) -> ComposeResult:  
@@ -574,3 +578,36 @@ class FV1App(App[None]):
 
     def show_toast(self, message, title=None, severity="information", timeout=4.0) -> None:
         self.notify(message, title=title, severity=severity, timeout=timeout)
+
+    def on_paste(self, event: events.Paste) -> None:
+        # Detect file drop
+        def _extract_filepaths(text: str) -> list[str]:
+            """Extracts escaped filepaths from text.
+            
+            Taken from https://github.com/agmmnn/textual-filedrop/blob/55a288df65d1397b959d55ef429e5282a0bb21ff/textual_filedrop/_filedrop.py#L17-L36
+            """
+            split_filepaths = []
+            if os.name == "nt":
+                pattern = r'(?:[^\s"]|"(?:\\"|[^"])*")+'
+                split_filepaths = re.findall(pattern, text)
+            else:
+                split_filepaths = shlex.split(text)
+
+            filepaths: list[str] = []
+            for i in split_filepaths:
+                item = i.replace("\x00", "").replace('"', "")
+                if os.path.isfile(item):
+                    filepaths.append(i)
+                # elif os.path.isdir(item):
+                #     for root, _, files in os.walk(item):
+                #         for file in files:
+                #             filepaths.append(os.path.join(root, file))
+            return filepaths
+        
+        try:
+            filepaths = _extract_filepaths(event.text)
+            if filepaths:
+                for file_path in filepaths:
+                    self.logger.info(file_path)
+        except ValueError:
+            pass
