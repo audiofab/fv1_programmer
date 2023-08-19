@@ -2,10 +2,12 @@ from __future__ import annotations
 import logging
 import json
 import re
+import os
+import shlex
 
 from rich.console import RenderableType
 
-from textual import on
+from textual import events, on
 from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
@@ -38,7 +40,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 _title = "FV1 Programmer"
 
@@ -71,12 +73,13 @@ class FilteredDirectoryTree(DirectoryTree):
 
 
 class LoadFileScreen(ModalScreen[Path]):
+    SUPPORTED_FILE_SUFFIXES = [".json", ".spn"]
     selection : reactive[Path | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
         yield Grid(
             Static("Choose a file:", id="fileselectlabel"),
-            FilteredDirectoryTree("./", id="filetree", valid_suffixes=[".json"]),
+            FilteredDirectoryTree("./", id="filetree", valid_suffixes=LoadFileScreen.SUPPORTED_FILE_SUFFIXES),
             Button("Cancel", variant="error", id="filedialogcancel"),
             Button("Select", variant="primary", id="filedialogselect"),
             id="filedialog",
@@ -144,6 +147,8 @@ class FV1ProgramPane(Widget):
 
     def on_mount(self) -> None:
         self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+V/Ctrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
+
+
 
 class ProgramTabs(Widget):
     def compose(self) -> ComposeResult:  
@@ -303,19 +308,66 @@ class MainScreen(Screen):
         self.app.push_screen(YesNoScreen("Are you sure you want to quit?",
                                          yes_variant="error"), check_quit)
 
-    def action_load_file(self) -> None:
-        def handle_load_file(path : Path) -> None:
-            if path is not None and path.exists() and path.is_file():
-                with open(str(path), 'r') as f:
-                    d = json.load(f)
-                    programs = d.get("programs", [None]*8)
-                    for i in range(1,9):
-                        program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
-                        if programs[i - 1] is not None:
-                            program_pane.program = FV1Program(programs[i - 1])
-                self.app.show_toast(f"Loaded programs from {path}")
+    def load_json_file(self, path : Path) -> None:
+        with open(str(path), 'r') as f:
+            d = json.load(f)
+            programs = d.get("programs", [None]*8)
+            for i in range(1,9):
+                program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
+                if programs[i - 1] is not None:
+                    program_pane.program = FV1Program(programs[i - 1])
+        self.app.show_toast(f"Loaded programs from {path}")
 
-        self.app.push_screen(LoadFileScreen(), handle_load_file)
+    def load_spn_file(self, path : Path, slot_number : int) -> None:
+        with open(str(path), 'r') as f:
+            program_pane = self.query_one(f"#fv1prog{slot_number}", FV1ProgramPane)
+            program_pane.program = FV1Program("".join(f.readlines()))
+        self.app.show_toast(f"Loaded {path}")
+
+    def handle_load_file(self, path : Path) -> None:
+        if path is not None and path.exists() and path.is_file():
+            if path.suffix.lower() == ".json":
+                self.load_json_file(path)
+            elif path.suffix.lower() == ".spn":
+                active_tab_id = self.query_one(TabbedContent).active
+                active_slot = active_tab_id.split("prog")[1]
+                self.load_spn_file(path, active_slot)
+
+    def action_load_file(self) -> None:
+        self.app.push_screen(LoadFileScreen(), self.handle_load_file)
+
+    def on_paste(self, event: events.Paste) -> None:
+        event.stop()
+
+        # Detect file drop
+        def _extract_filepaths(text: str) -> list[str]:
+            """Extracts escaped filepaths from text.
+            
+            Taken from https://github.com/agmmnn/textual-filedrop/blob/55a288df65d1397b959d55ef429e5282a0bb21ff/textual_filedrop/_filedrop.py#L17-L36
+            """
+            split_filepaths = []
+            if os.name == "nt":
+                pattern = r'(?:[^\s"]|"(?:\\"|[^"])*")+'
+                split_filepaths = re.findall(pattern, text)
+            else:
+                split_filepaths = shlex.split(text)
+
+            filepaths: list[Path] = []
+            for i in split_filepaths:
+                item = Path(i.replace("\x00", "").replace('"', ""))
+                if item.is_file():
+                    filepaths.append(item)
+            return filepaths
+        
+        try:
+            filepaths = _extract_filepaths(event.text)
+            if filepaths and len(filepaths) > 0:
+                # To keep things simple for now, we only support
+                # dropping a single file
+                self.handle_load_file(filepaths[0])
+
+        except ValueError:
+            pass
 
     def action_save(self) -> None:
         d = {"programs" : []}
