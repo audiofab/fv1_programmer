@@ -28,7 +28,6 @@ from textual.widgets import (
     Switch,
     Markdown,
     DirectoryTree,
-    Tree,
     Label,
     LoadingIndicator,
     Input,
@@ -40,7 +39,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 _title = "FV1 Programmer"
 

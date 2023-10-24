@@ -32,3 +32,12 @@ jobs:
         run: |
           poetry config pypi-token.pypi $PYPI_TOKEN
           poetry publish --build
+
+      - name: Build EXE
+        run: |
+          poetry run build_exe
+
+      - uses: AButler/upload-release-assets@v2.0
+        with:
+          files: 'dist/*.exe'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
