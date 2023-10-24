@@ -33,7 +33,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          rm poetry.lock
           poetry install --with dev
 
       - name: Publish
