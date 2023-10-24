@@ -4,9 +4,11 @@ An EEPROM programming tool for the [Audiofab](https://audiofab.com/) [Easy Spin]
 
 # Installation
 
-This utility requires Python 3.8 or greater and has been tested on Windows, but should also work on MacOS and Linux. 
+This utility requires Python 3.8 or greater and has been tested on Windows, but should also work on MacOS and Linux.
 
-The easiest way to install this utility is with Python's built-in pip but it will also install a bunch of dependencies directly into your Python environment:
+On Windows, there should be a pre-built executable available from the latest release on Github. If you are on Windows and would prefer to download the pre-built binary, you can simply download the executable and run it directly. No other dependencies are required. We still recommend you install [Windows Terminal](https://aka.ms/terminal) and set it to be your default terminal.
+
+Otherwise, this software is written in pure Python and can be installed using `pip` or `pipx`. If you are on MacOS or Linux, or you prefer to install and run the tool using Python (such that it can be easily updated to the latest release using Python's packaging tools), the easiest way to install this utility is with Python's built-in `pip`. But keep in mind it will also install a bunch of dependencies directly into your Python environment:
 
 `pip install fv1-programmer`
 
