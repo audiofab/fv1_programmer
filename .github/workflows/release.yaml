@@ -48,5 +48,5 @@ jobs:
 
       - uses: AButler/upload-release-assets@v2.0
         with:
-          files: 'dist/*.exe'
+          files: '**/dist/fv1_programmer.exe'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
