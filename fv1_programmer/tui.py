@@ -39,7 +39,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.3.7"
+__version__ = "0.3.8"
 
 _title = "FV1 Programmer"
 
@@ -526,7 +526,7 @@ class MainScreen(Screen):
             if warnings is not None:
                 for warning in warnings:
                     self.app.logger.info(warning)
-                    m = re.match("info: Read (\d+) instructions\.", warning)
+                    m = re.match(r"info: Read (\d+) instructions\.", warning)
                     # Only worry about real warnings
                     if m.group(0) != warning:
                         were_warnings = True

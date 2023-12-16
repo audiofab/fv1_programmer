@@ -1,6 +1,6 @@
 # FV-1 Programmer
 
-An EEPROM programming tool for the [Audiofab](https://audiofab.com/) [Easy Spin](https://audiofab.com/products/easy-spin) effects pedal.
+An FV-1 assembler/disassembler and EEPROM programming tool for the [Audiofab](https://audiofab.com/) [Easy Spin](https://audiofab.com/products/easy-spin) effects pedal.
 
 # Installation
 

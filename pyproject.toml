@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "fv1-programmer"
-version = "0.3.7"
+version = "0.3.8"
 homepage = "https://github.com/audiofab/fv1_programmer"
-description = "An EEPROM programming tool for the FV-1 DSP"
+description = "An FV-1 assembler/disassembler and EEPROM programming tool for the Spin Semiconductor FV-1 DSP"
 authors = ["Mark Melvin <mark.melvin@audiofab.com>"]
 readme = "README.md"
 license = "MIT"
@@ -47,7 +47,6 @@ pythonpath = [
 
 [tool.poetry.scripts]
 fv1_programmer = "fv1_programmer.main:run"
-build_exe = "fv1_programmer.pyinstaller:make_exe"
 
 [build-system]
 requires = ["poetry-core"]
