@@ -65,7 +65,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          poetry run build_exe
+          poetry run python ./fv1_programmer/pyinstaller.py
 
       - uses: AButler/upload-release-assets@v2.0
         with:
