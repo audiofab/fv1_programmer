@@ -39,7 +39,8 @@ jobs:
       matrix:
         python-version: ['3.10']
         poetry-version: ['1.4.2']
-        os: [windows-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code and submodules
@@ -63,11 +64,11 @@ jobs:
         run: |
           poetry install --with dev
 
-      - name: Build EXE
+      - name: Build Executable
         run: |
           poetry run python ./fv1_programmer/pyinstaller.py
 
       - uses: AButler/upload-release-assets@v2.0
         with:
-          files: '**/dist/fv1_programmer.exe'
+          files: '**/dist/*'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
