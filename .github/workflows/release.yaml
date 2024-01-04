@@ -33,7 +33,7 @@ jobs:
           poetry config pypi-token.pypi $PYPI_TOKEN
           poetry publish --build
 
-  build_windows_binary:
+  build_binaries:
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +68,24 @@ jobs:
         run: |
           poetry run python ./fv1_programmer/pyinstaller.py
 
-      - uses: AButler/upload-release-assets@v2.0
+      - name: Upload Windows executable
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: '**/dist/*'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_name: fv1_programmer.exe
+          asset_path: '**/dist/fv1_programmer.exe'
+          asset_content_type: application/octet-stream
+
+      - name: Upload non-Windows executable
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_name: fv1-programmer-${{ matrix.os }}
+          asset_path: '**/dist/fv1_programmer'
+          asset_content_type: application/octet-stream
