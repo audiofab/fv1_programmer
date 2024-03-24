@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fv1-programmer"
-version = "0.4.2"
+version = "0.4.3"
 homepage = "https://github.com/audiofab/fv1_programmer"
 description = "An FV-1 assembler/disassembler and EEPROM programming tool for the Spin Semiconductor FV-1 DSP"
 authors = ["Mark Melvin <mark.melvin@audiofab.com>"]
