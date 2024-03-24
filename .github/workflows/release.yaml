@@ -5,34 +5,6 @@ on:
       - created
 
 jobs:
-  publish:
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.10']
-        poetry-version: ['1.4.2']
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code and submodules
-        uses: actions/checkout@v3
-        with:
-          submodules: 'true'
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Run image
-        uses: abatilo/actions-poetry@v2
-        with:
-          poetry-version: ${{ matrix.poetry-version }}
-      - name: Publish
-        env:
-          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          poetry config pypi-token.pypi $PYPI_TOKEN
-          poetry publish --build
-
   build_binaries:
     strategy:
       fail-fast: false
@@ -89,3 +61,31 @@ jobs:
           asset_name: fv1-programmer-${{ matrix.os }}
           asset_path: ./dist/fv1_programmer
           asset_content_type: application/octet-stream
+
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10']
+        poetry-version: ['1.4.2']
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code and submodules
+        uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run image
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: ${{ matrix.poetry-version }}
+      - name: Publish
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          poetry config pypi-token.pypi $PYPI_TOKEN
+          poetry publish --build

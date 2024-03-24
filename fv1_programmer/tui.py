@@ -12,7 +12,7 @@ from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Grid, Horizontal, VerticalScroll
 from textual.screen import Screen, ModalScreen
 from textual.worker import Worker, get_current_worker
 from textual.message import Message
@@ -134,7 +134,7 @@ class SaveFileScreen(ModalScreen[Path]):
 class FV1ProgramPane(Widget):
     program : reactive[FV1Program | None] = reactive(None)
 
-    def compose(self) -> ComposeResult:  
+    def compose(self) -> ComposeResult:
         yield Markdown()
 
     def watch_program(self, new_program: FV1Program):
@@ -322,6 +322,8 @@ class MainScreen(Screen):
             program_pane = self.query_one(f"#fv1prog{slot_number}", FV1ProgramPane)
             program_pane.program = FV1Program("".join(f.readlines()))
         self.app.show_toast(f"Loaded {path}")
+        if not self.app.setting_asfv1_spinreals:
+            self.app.show_toast(f"You may want to enable 'Spin Reals' in the settings!")
 
     def handle_load_file(self, path : Path) -> None:
         if path is not None and path.exists() and path.is_file():
@@ -397,18 +399,25 @@ class MainScreen(Screen):
 
     def action_write_eeprom(self) -> None:
         programs = []
+        errors = 0
         for i in range(1,9):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
-                bin_array, warnings, errors = program_pane.program.assemble(
-                                                            clamp=self.app.setting_asfv1_clamp,
-                                                            spinreals=self.app.setting_asfv1_spinreals)
-                programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
-        if len(programs) == 0:
-            self.app.show_toast("Nothing to do!", severity="warning")
+                bin_array = self.assemble_and_validate_program(program_pane.program)
+                if bin_array is not None:
+                    programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
+                else:
+                    self.app.show_toast(f"Program {i} failed to assemble. See log for details.")
+                    errors += 1
+
+        if errors > 0:
+            self.app.show_toast("Errors while assembling. Download aborted.", severity="warning")
         else:
-            self.app.push_screen(BusyScreen("Downloading to pedal..."))
-            self.write_eeprom(programs, self.app.setting_simulate)
+            if len(programs) == 0:
+                self.app.show_toast("Nothing to do!", severity="warning")
+            else:
+                self.app.push_screen(BusyScreen("Downloading to pedal..."))
+                self.write_eeprom(programs, self.app.setting_simulate)
 
     def _get_eeprom(self,):
         if self.app.setting_simulate:
@@ -539,11 +548,8 @@ class MainScreen(Screen):
     def action_paste(self) -> None:
         # Validate program
         new_program = FV1Program(pyperclip.paste())
-        bin_array, warnings, errors = new_program.assemble(clamp=self.app.setting_asfv1_clamp,
-                                                           spinreals=self.app.setting_asfv1_spinreals)
-        [self.app.logger.info(w) for w in warnings]
-        [self.app.logger.info(e) for e in errors]
-        if len(errors) == 0:
+        bin_array = self.assemble_and_validate_program(new_program)
+        if bin_array is not None:
             active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
             active_program_pane.program = FV1Program(pyperclip.paste())
         else:
@@ -552,6 +558,13 @@ class MainScreen(Screen):
     def action_delete(self) -> None:
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         active_program_pane.program = None
+
+    def assemble_and_validate_program(self, program) -> bytearray:
+        bin_array, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
+                                                       spinreals=self.app.setting_asfv1_spinreals)
+        [self.app.logger.info(w) for w in warnings]
+        [self.app.logger.info(e) for e in errors]
+        return bin_array if len(errors) == 0 else None
 
 
 from dataclasses import dataclass
