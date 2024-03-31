@@ -30,7 +30,7 @@ This will bring up a user interface that will allow you to configure all 8 progr
 
 ![image](https://github.com/audiofab/fv1_programmer/assets/1384978/36d8e9b9-4fe6-4cc4-b7b3-194910aaff97)
 
-NOTE: On Linux you likely still need to install `libusb` and add a udev rule separately. See [Ubuntu Linux](README.md#Ubuntu_Linux).
+NOTE: On Linux you likely still need to install `libusb` and add a udev rule separately. See [Ubuntu Linux](README.md#Ubuntu-linux).
 
 ## Using One Of The Pre-Built Binaries
 
