@@ -150,14 +150,16 @@ ModalScreen {
 }
 
 #filesavedialog {
-    grid-size: 2;
-    grid-gutter: 1 2;
-    grid-rows: 1fr 3;
     padding: 0 1;
-    width: 90vw;
+    width: 80vw;
     height: 30vh;
     border: thick $background 80%;
     background: $surface;
+}
+
+#filesavedialog > Input {
+    margin: 1 1;
+    border: $primary;
 }
 
 #fileselectlabel {

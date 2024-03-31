@@ -39,7 +39,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
 
 
-__version__ = "0.4.3"
+__version__ = "0.4.4"
 
 _title = "FV1 Programmer"
 
@@ -436,29 +436,29 @@ class MainScreen(Screen):
     def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
         worker = get_current_worker()
         eeprom = None
+        error = None
         try:
             eeprom = self._get_eeprom()
-        except Exception as e:
-            if not worker.is_cancelled:
-                self.post_message(self.WriteEepromResult(programs, error=e))
 
-        if eeprom is not None:
-            for program in programs:
-                addr = program["address"]
-                data = program["data"]
-                eeprom.write_bytes(addr, data)
-
-            error = None
-            # Read back all the data and verify
-            if self.app.setting_verify_writes:
+            if eeprom is not None:
                 for program in programs:
                     addr = program["address"]
                     data = program["data"]
-                    read_data = eeprom.read_bytes(addr, len(data))
-                    if read_data != data:
-                        error = ValueError("EEPROM write failed verification!")
-                        break
+                    eeprom.write_bytes(addr, data)
 
+                # Read back all the data and verify
+                if self.app.setting_verify_writes:
+                    for program in programs:
+                        addr = program["address"]
+                        data = program["data"]
+                        read_data = eeprom.read_bytes(addr, len(data))
+                        if read_data != data:
+                            error = ValueError("EEPROM write failed verification!")
+                            break
+        except Exception as e:
+            if not worker.is_cancelled:
+                self.post_message(self.WriteEepromResult(programs, error=e))
+        else:
             if not worker.is_cancelled:
                 self.post_message(self.WriteEepromResult(programs, error=error))
 
@@ -503,19 +503,20 @@ class MainScreen(Screen):
         eeprom = None
         try:
             eeprom = self._get_eeprom()
+
+            if eeprom is not None:
+                programs = []
+                program_data = eeprom.read_bytes(0, FV1_PROGRAM_MAX_BYTES*8)
+                for offset in range(0, 8*FV1_PROGRAM_MAX_BYTES, FV1_PROGRAM_MAX_BYTES):
+                    program = FV1Program("")
+                    warnings = program.from_bytearray(program_data[offset:offset + FV1_PROGRAM_MAX_BYTES],
+                                                    relative=relative, suppressraw=suppressraw)
+                    programs.append({"program" : program, "warnings" : warnings})
+
         except Exception as e:
             if not worker.is_cancelled:
                 self.post_message(self.ReadEepromResult({}, error=e))
-
-        if eeprom is not None:
-            programs = []
-            program_data = eeprom.read_bytes(0, FV1_PROGRAM_MAX_BYTES*8)
-            for offset in range(0, 8*FV1_PROGRAM_MAX_BYTES, FV1_PROGRAM_MAX_BYTES):
-                program = FV1Program("")
-                warnings = program.from_bytearray(program_data[offset:offset + FV1_PROGRAM_MAX_BYTES],
-                                                  relative=relative, suppressraw=suppressraw)
-                programs.append({"program" : program, "warnings" : warnings})
-
+        else:
             if not worker.is_cancelled:
                 self.post_message(self.ReadEepromResult(programs))
 
@@ -606,7 +607,7 @@ class FV1App(App[None]):
 
         # asfv1 options
         self.setting_asfv1_clamp = True
-        self.setting_asfv1_spinreals = False
+        self.setting_asfv1_spinreals = True
 
         # disfv1 options
         self.setting_disfv1_relative = False
