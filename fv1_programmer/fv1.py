@@ -33,9 +33,9 @@ class FV1Program(object):
         except ASFV1Error:
             if len(errors) == 0:
                 errors = ["Failed to assemble program"]
-            return None, warnings, errors
+            return None, fp.icnt, warnings, errors
 
-        return fp.program, warnings, errors
+        return fp.program, fp.icnt, warnings, errors
 
     def from_bytearray(self, data : bytearray, relative=False, suppressraw=False) -> str:
         """
@@ -56,7 +56,6 @@ class FV1Program(object):
 
         return warnings
 
-    def as_markdown(self,) -> str:
-        return f"""```
-{self.asm}
-```"""
+    @property
+    def assembly(self,) -> str:
+        return self.asm

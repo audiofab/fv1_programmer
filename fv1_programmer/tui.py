@@ -14,34 +14,37 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Grid, Horizontal, VerticalScroll
 from textual.screen import Screen, ModalScreen
-from textual.worker import Worker, get_current_worker
+from textual.worker import get_current_worker
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import (
     Footer,
     Header,
     Static,
-    TextLog,
+    RichLog,
     Button,
     TabbedContent,
     TabPane,
     Switch,
-    Markdown,
     DirectoryTree,
     Label,
     LoadingIndicator,
     Input,
+    TextArea,
+    ContentSwitcher,
+    Markdown,
 )
 
 from typing import Iterable
 from pathlib import Path
-from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
+from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 
 
-__version__ = "0.4.4"
+__version__ = "0.5.0"
 
 _title = "FV1 Programmer"
+
 
 class BusyScreen(ModalScreen):
     def __init__(self, message : str) -> None:
@@ -135,18 +138,47 @@ class FV1ProgramPane(Widget):
     program : reactive[FV1Program | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
-        yield Markdown()
+        with ContentSwitcher(initial="empty-slot"):  
+            yield Markdown(id="empty-slot")
+            yield TextArea.code_editor("", id="text-area-slot")
 
     def watch_program(self, new_program: FV1Program):
-        markdown = '# No program specified (leave this slot untouched)'
         if new_program is not None:
-            markdown = new_program.as_markdown()
-
-        self.query_one(Markdown).update(markdown)
+            self.query_one(ContentSwitcher).current = "text-area-slot"
+            self.query_one(TextArea).text = new_program.assembly
+        else:
+            self.query_one(ContentSwitcher).current = "empty-slot"
 
     def on_mount(self) -> None:
-        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+V/Ctrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
+        self.query_one(Markdown).update("""# Empty Program Slot
+This is an empty program slot that will be ignored when downloading to the Easy Spin pedal. <br>
 
+To add a program to this slot, you can do one of the following:
+
+- Click here to [create a new program for editing](#new-program)
+- Drag and drop an appropriate file onto this window (.spn, .json)
+
+Press *Ctrl+D* to delete a program and reset the program slot to be empty (ignored during download) <br>
+
+Also see these helpful links: <br>
+
+Textual documentation for the editor keybindings: https://textual.textualize.io/widgets/text_area/#bindings <br>
+Easy Spin webpage: https://audiofab.com/products/easy-spin <br>
+""")
+
+    @on(Markdown.LinkClicked)
+    def on_click(self, event):
+        if event.href == "#new-program":
+            self.program = FV1Program("""; Program description
+; Pot 0: ??
+; Pot 1: ??
+; Pot 2: ??
+; -----------------------------------
+""")
+
+    @on(TextArea.Changed)
+    def on_changed(self, event):
+        self.program.asm = self.query_one(TextArea).text
 
 
 class ProgramTabs(Widget):
@@ -169,6 +201,10 @@ class ProgramTabs(Widget):
             with TabPane("Program 8", id="prog8"):
                 yield FV1ProgramPane(id="fv1prog8")
 
+    # @on(TabbedContent.TabActivated)
+    # def on_tab_changed(self, event):
+    #     self.app.logger.info(event.pane.query_one(TextArea))
+    #     event.pane.query_one(TextArea).focus()
 
 class YesNoScreen(ModalScreen[bool]):
     def __init__(self, message, no_text="No", yes_text="Yes",
@@ -246,15 +282,13 @@ class ConsoleLogStream:
 class MainScreen(Screen):
     TITLE = _title
     BINDINGS = [
-        ("ctrl+l", "load_file", "Load"),
-        ("ctrl+s", "save", "Save"),
-        ("ctrl+r", "read_eeprom", "Read"),
-        ("ctrl+w", "write_eeprom", "Write"),
-        ("f1", "app.toggle_class('TextLog', '-hidden')", "Log"),
+        Binding("ctrl+l", "load_file", "Load", priority=True),
+        Binding("ctrl+s", "save", "Save", priority=True),
+        Binding("ctrl+r", "read_eeprom", "Read", priority=True),
+        Binding("ctrl+w", "write_eeprom", "Write", priority=True),
+        ("f1", "app.toggle_class('RichLog', '-hidden')", "Log"),
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
-        Binding("ctrl+v", "paste", "Paste", show=False, priority=True),
-        Binding("ctrl+t", "paste", "Paste", show=False, priority=True),
         Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
     ]
 
@@ -276,7 +310,7 @@ class MainScreen(Screen):
         with Container():
             yield Sidebar(classes="-hidden")
             yield Header(show_clock=True)
-            yield TextLog(id="consolelog", classes="-hidden", wrap=False, highlight=True, markup=True)
+            yield RichLog(id="consolelog", classes="-hidden", wrap=False, highlight=True, markup=True)
             yield ProgramTabs()
             yield Footer()
 
@@ -291,7 +325,7 @@ class MainScreen(Screen):
             sidebar.add_class("-hidden")
 
     def console_log(self, renderable: RenderableType) -> None:
-        self.query_one(TextLog).write(renderable)
+        self.query_one(RichLog).write(renderable)
 
     def on_mount(self) -> None:
         sh = logging.StreamHandler(stream=ConsoleLogStream(self.console_log))
@@ -405,7 +439,11 @@ class MainScreen(Screen):
             if program_pane.program is not None:
                 bin_array = self.assemble_and_validate_program(program_pane.program)
                 if bin_array is not None:
-                    programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
+                    if len(bin_array):
+                        programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
+                    else:
+                        # Program assembled but there are no instructions
+                        self.app.show_toast(f"Program {i} has no instructions.")
                 else:
                     self.app.show_toast(f"Program {i} failed to assemble. See log for details.")
                     errors += 1
@@ -432,7 +470,7 @@ class MainScreen(Screen):
             return I2CEEPROM(adaptor, self.app.cmdline_args.ee_size,
                              page_size_in_bytes=self.app.cmdline_args.ee_page_size)
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
         worker = get_current_worker()
         eeprom = None
@@ -497,7 +535,7 @@ class MainScreen(Screen):
         else:
             do_read_eeprom()
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     def read_eeprom(self, simulate : bool, relative : bool, suppressraw : bool) -> None:
         worker = get_current_worker()
         eeprom = None
@@ -546,26 +584,21 @@ class MainScreen(Screen):
         else:
             self.app.show_toast("EEPROM read complete.")
 
-    def action_paste(self) -> None:
-        # Validate program
-        new_program = FV1Program(pyperclip.paste())
-        bin_array = self.assemble_and_validate_program(new_program)
-        if bin_array is not None:
-            active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
-            active_program_pane.program = FV1Program(pyperclip.paste())
-        else:
-            self.app.show_toast("Ignoring invalid clipboard contents. See log for details.")
-
     def action_delete(self) -> None:
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         active_program_pane.program = None
 
     def assemble_and_validate_program(self, program) -> bytearray:
-        bin_array, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
-                                                       spinreals=self.app.setting_asfv1_spinreals)
+        bin_array, num_instructions, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
+                                                                         spinreals=self.app.setting_asfv1_spinreals)
         [self.app.logger.info(w) for w in warnings]
         [self.app.logger.info(e) for e in errors]
-        return bin_array if len(errors) == 0 else None
+        if len(errors) == 0:
+            if num_instructions > 0:
+                return bin_array
+            else:
+                return []
+        return None
 
 
 from dataclasses import dataclass
@@ -628,8 +661,8 @@ class FV1App(App[None]):
     def exit(self, result = None) -> None:
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         if active_program_pane.program is not None:
-            pyperclip.copy(active_program_pane.program.asm)
-            self.show_toast("Current program copied to clipboard")
+            pyperclip.copy(active_program_pane.query_one(TextArea).selected_text)
+        #     self.show_toast("Current program copied to clipboard")
 
     def do_exit(self, result = None) -> None:
         super().exit(result)
