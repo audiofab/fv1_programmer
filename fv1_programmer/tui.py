@@ -227,7 +227,7 @@ This is an empty program slot that will be ignored when downloading to the Easy 
 
 To add a program to this slot, you can do one of the following:
 
-- Click here to [create a new program for editing](#new-program)
+- Click here or press Ctrl+N to [create a new program for editing](#new-program)
 - Drag and drop an appropriate file onto this window (.spn, .json)
 
 Press *Ctrl+D* to delete a program and reset the program slot to be empty (ignored during download) <br>
@@ -241,16 +241,12 @@ Easy Spin webpage: https://audiofab.com/products/easy-spin <br>
     @on(Markdown.LinkClicked)
     def on_click(self, event):
         if event.href == "#new-program":
-            self.program = FV1Program("""; Program description
-; Pot 0: ??
-; Pot 1: ??
-; Pot 2: ??
-; -----------------------------------
-""")
+            self.program = FV1Program("")
 
     @on(TextArea.Changed)
     def on_changed(self, event):
         self.program.asm = self.query_one(TextArea).text
+        self.query_one(TextArea).focus()
 
 
 class ProgramTabs(Widget):
@@ -362,6 +358,7 @@ class MainScreen(Screen):
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
         Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
+        Binding("ctrl+n", "new", "New Program", show=False, priority=True),
         Binding("ctrl+p", "command_palette", show=False, priority=True),
     ]
     COMMANDS = {FV1AppCommands}
@@ -693,6 +690,11 @@ class MainScreen(Screen):
     def action_delete(self) -> None:
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         active_program_pane.program = None
+
+    def action_new(self) -> None:
+        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        active_program_pane.program = FV1Program("")
+        active_program_pane.query_one(TextArea).focus()
 
     def assemble_and_validate_program(self, program) -> bytearray:
         bin_array, num_instructions, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
