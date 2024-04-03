@@ -52,16 +52,13 @@ MAX_PROGRAM_NUM = 8
 class FV1AppCommands(Provider):
     """A command provider to open a Python file in the current working directory."""
 
-    def initialize(self) -> None:
-        discovery_commands = [
-            ("Delete current program", self.screen.action_delete,"Delete any program in current slot (Ctr+D)")
-        ]
-        return discovery_commands
-
     async def startup(self) -> None:
         """Called once when the command palette is opened"""
-        worker = self.app.run_worker(self.initialize, thread=True)
-        self.discovery_commands = await worker.wait()
+        self.discovery_commands = [
+            ("Rename current program", self.screen.rename_program_slot, "Provide your own name for this program slot"),
+            ("New program", self.screen.action_new, "Create a new, empty program in current slot (Ctr+N)"),
+            ("Delete current program", self.screen.action_delete,"Delete any program in current slot"),
+        ]
 
     async def discover(self,) -> Hits:
         for name, callback, help_msg in self.discovery_commands:
@@ -85,17 +82,6 @@ class FV1AppCommands(Provider):
                     partial(self.screen.swap_with_slot, i),
                     help=f"Swap this slot with slot {i}",
                 )
-
-        # Name slot command
-        command = f"Name slot"
-        score = matcher.match(command)
-        if score > 0:
-            yield Hit(
-                score,
-                matcher.highlight(command),
-                self.screen.name_program_slot,
-                help=f"Provide your own name for this program slot",
-            )
 
 
 class BusyScreen(ModalScreen):
@@ -194,7 +180,7 @@ class RenameSlotScreen(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         yield Vertical(
             Static("New program slot name:"),
-            Input("Name", id="newprogramslotname"),
+            Input("", id="newprogramslotname"),
             id="renameslotdialog",
         )
 
@@ -350,6 +336,8 @@ class ConsoleLogStream:
 class MainScreen(Screen):
     TITLE = _title
     BINDINGS = [
+        Binding("ctrl+n", "new", "New Program", show=False, priority=True),
+        Binding("ctrl+p", "command_palette", show=False, priority=True),
         Binding("ctrl+l", "load_file", "Load", priority=True),
         Binding("ctrl+s", "save", "Save", priority=True),
         Binding("ctrl+r", "read_eeprom", "Read", priority=True),
@@ -357,9 +345,6 @@ class MainScreen(Screen):
         ("f1", "app.toggle_class('RichLog', '-hidden')", "Log"),
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
-        Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
-        Binding("ctrl+n", "new", "New Program", show=False, priority=True),
-        Binding("ctrl+p", "command_palette", show=False, priority=True),
     ]
     COMMANDS = {FV1AppCommands}
 
@@ -435,7 +420,7 @@ class MainScreen(Screen):
         self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label = dest_name
         self.query_one(TabbedContent).get_tab(f"prog{dest_slot}").label = active_name
 
-    def name_program_slot(self,) -> None:
+    def rename_program_slot(self,) -> None:
         """Prompts the user for a name for the current program slot"""
         def handle_program_rename(name : str) -> None:
             if name and len(name):
