@@ -11,8 +11,9 @@ from textual import events, on
 from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
+from textual.command import Hit, Hits, DiscoveryHit, Provider, CommandPalette
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, VerticalScroll
+from textual.containers import Container, Grid, Horizontal, VerticalScroll, Vertical
 from textual.screen import Screen, ModalScreen
 from textual.worker import get_current_worker
 from textual.message import Message
@@ -35,6 +36,7 @@ from textual.widgets import (
     Markdown,
 )
 
+from functools import partial
 from typing import Iterable
 from pathlib import Path
 import pyperclip
@@ -44,6 +46,56 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 __version__ = "0.5.0"
 
 _title = "FV1 Programmer"
+MIN_PROGRAM_NUM = 1
+MAX_PROGRAM_NUM = 8
+
+class FV1AppCommands(Provider):
+    """A command provider to open a Python file in the current working directory."""
+
+    def initialize(self) -> None:
+        discovery_commands = [
+            ("Delete current program", self.screen.action_delete,"Delete any program in current slot (Ctr+D)")
+        ]
+        return discovery_commands
+
+    async def startup(self) -> None:
+        """Called once when the command palette is opened"""
+        worker = self.app.run_worker(self.initialize, thread=True)
+        self.discovery_commands = await worker.wait()
+
+    async def discover(self,) -> Hits:
+        for name, callback, help_msg in self.discovery_commands:
+            yield DiscoveryHit(name, callback, help=help_msg)
+
+    async def search(self, query: str) -> Hits:
+        """Search for Python files."""
+        matcher = self.matcher(query)  
+
+        app = self.app
+        assert isinstance(app, FV1App)
+
+        # Slot swapping commands
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
+            command = f"Swap with slot {i}"
+            score = matcher.match(command)
+            if score > 0:
+                yield Hit(
+                    score,
+                    matcher.highlight(command),
+                    partial(self.screen.swap_with_slot, i),
+                    help=f"Swap this slot with slot {i}",
+                )
+
+        # Name slot command
+        command = f"Name slot"
+        score = matcher.match(command)
+        if score > 0:
+            yield Hit(
+                score,
+                matcher.highlight(command),
+                self.screen.name_program_slot,
+                help=f"Provide your own name for this program slot",
+            )
 
 
 class BusyScreen(ModalScreen):
@@ -132,6 +184,26 @@ class SaveFileScreen(ModalScreen[Path]):
     @on(Button.Pressed, "#filedialogcancel")
     def cancel(self):
         self.dismiss(None)
+
+
+class RenameSlotScreen(ModalScreen[str]):
+    BINDINGS = [
+        Binding("escape", "escape", "Exit the rename dialog"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Static("New program slot name:"),
+            Input("Name", id="newprogramslotname"),
+            id="renameslotdialog",
+        )
+
+    def action_escape(self,):
+        self.dismiss(None)
+
+    @on(Input.Submitted)
+    def accept_input(self,):
+        self.dismiss(self.query_one("#newprogramslotname", Input).value)
 
 
 class FV1ProgramPane(Widget):
@@ -290,7 +362,9 @@ class MainScreen(Screen):
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
         Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
+        Binding("ctrl+p", "command_palette", show=False, priority=True),
     ]
+    COMMANDS = {FV1AppCommands}
 
     show_sidebar = reactive(False)
 
@@ -341,11 +415,43 @@ class MainScreen(Screen):
         self.app.push_screen(YesNoScreen("Are you sure you want to quit?",
                                          yes_variant="error"), check_quit)
 
+    def action_command_palette(self) -> None:
+        """Show the Textual command palette."""
+        if not CommandPalette.is_open(self):
+            self.app.push_screen(CommandPalette(), callback=self.app.call_next)
+
+    def swap_with_slot(self, dest_slot : int) -> None:
+        """Swaps the current program slot with `dest_slot`"""
+        active_tab_id = self.query_one(TabbedContent).active
+        active_slot = active_tab_id.split("prog")[1]
+        if active_slot == dest_slot:
+            return
+        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        dest_program_pane = self.query_one(f"#fv1prog{dest_slot}", FV1ProgramPane)
+        tmp_prog = dest_program_pane.program
+        dest_program_pane.program = active_program_pane.program
+        active_program_pane.program = tmp_prog
+
+        # TODO This is an internal query that may break in the future!
+        active_name = self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label
+        dest_name = self.query_one(TabbedContent).get_tab(f"prog{dest_slot}").label
+        self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label = dest_name
+        self.query_one(TabbedContent).get_tab(f"prog{dest_slot}").label = active_name
+
+    def name_program_slot(self,) -> None:
+        """Prompts the user for a name for the current program slot"""
+        def handle_program_rename(name : str) -> None:
+            if name and len(name):
+                # TODO This is an internal query that may break in the future!
+                self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label = name
+
+        self.app.push_screen(RenameSlotScreen(), handle_program_rename)
+
     def load_json_file(self, path : Path) -> None:
         with open(str(path), 'r') as f:
             d = json.load(f)
             programs = d.get("programs", [None]*8)
-            for i in range(1,9):
+            for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
                 program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
                 if programs[i - 1] is not None:
                     program_pane.program = FV1Program(programs[i - 1])
@@ -407,7 +513,7 @@ class MainScreen(Screen):
     def action_save(self) -> None:
         d = {"programs" : []}
 
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             d["programs"].append(program_pane.program.asm if program_pane.program is not None else None)
 
@@ -434,7 +540,7 @@ class MainScreen(Screen):
     def action_write_eeprom(self) -> None:
         programs = []
         errors = 0
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
                 bin_array = self.assemble_and_validate_program(program_pane.program)
@@ -520,7 +626,7 @@ class MainScreen(Screen):
                              self.app.setting_disfv1_suppressraw)
 
         num_programs = 0
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
                 num_programs += 1
@@ -567,7 +673,7 @@ class MainScreen(Screen):
             return
 
         were_warnings = False
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             program_pane.program = message.programs[i - 1]["program"]
             warnings = message.programs[i - 1]["warnings"]
@@ -618,6 +724,8 @@ class Args:
 class FV1App(App[None]):
     CSS_PATH = "tui.css"
     SCREENS = {"main" : MainScreen()}
+    ENABLE_COMMAND_PALETTE = False
+    COMMANDS = {}
 
     def __init__(self, cmdline_args=None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

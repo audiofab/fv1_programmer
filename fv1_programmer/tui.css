@@ -149,6 +149,19 @@ ModalScreen {
     background: $surface;
 }
 
+#renameslotdialog {
+    padding: 0 1;
+    width: 80vw;
+    height: 30vh;
+    border: thick $background 80%;
+    background: $surface;
+}
+
+#renameslotdialog > Input {
+    margin: 1 1;
+    border: $primary;
+}
+
 #filesavedialog {
     padding: 0 1;
     width: 80vw;
