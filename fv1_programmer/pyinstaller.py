@@ -12,6 +12,7 @@ def make_exe():
         '--console',
         '--name', 'fv1_programmer',
         '--add-data', f'{str(this_dir / "tui.css")}:fv1_programmer',
+        '--add-data', f'{str(this_dir / "dialogs.css")}:fv1_programmer',
         '--paths', str(this_dir / ".."),
         '--version-file', str(this_dir / "../version.rc"),
         '--icon', str(this_dir / "../audiofab.ico"),
