@@ -52,7 +52,7 @@ class FV1AppCommands(Provider):
     async def startup(self) -> None:
         """Called once when the command palette is opened"""
         self.discovery_commands = [
-            ("Rename current program", self.screen.rename_program_slot, "Provide your own name for this program slot"),
+            ("Rename current program", self.screen.action_rename_program_slot, "Provide your own name for this program slot"),
             ("New program", self.screen.action_new, "Create a new, empty program in current slot (Ctr+N)"),
             ("Delete current program", self.screen.action_delete,"Delete any program in current slot"),
         ]
@@ -275,18 +275,19 @@ class MainScreen(Screen):
         dest_program_pane.program = active_program_pane.program
         active_program_pane.program = tmp_prog
 
-        # TODO This is an internal query that may break in the future!
         active_name = self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label
         dest_name = self.query_one(TabbedContent).get_tab(f"prog{dest_slot}").label
-        self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label = dest_name
-        self.query_one(TabbedContent).get_tab(f"prog{dest_slot}").label = active_name
+        self.rename_program_slot(active_slot, dest_name)
+        self.rename_program_slot(dest_slot, active_name)
 
-    def rename_program_slot(self,) -> None:
+    def rename_program_slot(self, slot_num : int, name : str) -> None:
+        self.query_one(TabbedContent).get_tab(f"prog{slot_num}").label = name
+
+    def action_rename_program_slot(self,) -> None:
         """Prompts the user for a name for the current program slot"""
         def handle_program_rename(name : str) -> None:
             if name and len(name):
-                # TODO This is an internal query that may break in the future!
-                self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label = name
+                self.rename_program_slot(self.query_one(TabbedContent).active.split("prog")[1], name)
 
         self.app.push_screen(RenameSlotScreen(), handle_program_rename)
 
@@ -297,16 +298,22 @@ class MainScreen(Screen):
             for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
                 program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
                 if programs[i - 1] is not None:
-                    program_pane.program = FV1Program(programs[i - 1])
+                    if isinstance(programs[i - 1], str):
+                        program_pane.program = FV1Program(programs[i - 1])
+                        self.rename_program_slot(i, f"Program {i}")
+                    else:
+                        self.rename_program_slot(i, programs[i - 1].get("name", f"Program {i}"))
+                        prog = programs[i - 1].get("asm", None)
+                        program_pane.program = FV1Program(prog) if prog is not None else prog
+
         self.app.show_toast(f"Loaded programs from {path}")
 
     def load_spn_file(self, path : Path, slot_number : int) -> None:
         with open(str(path), 'r') as f:
             program_pane = self.query_one(f"#fv1prog{slot_number}", FV1ProgramPane)
             program_pane.program = FV1Program("".join(f.readlines()))
+            self.rename_program_slot(slot_number, path.stem)
         self.app.show_toast(f"Loaded {path}")
-        if not self.app.setting_asfv1_spinreals:
-            self.app.show_toast(f"You may want to enable 'Spin Reals' in the settings!")
 
     def handle_load_file(self, path : Path) -> None:
         if path is not None and path.exists() and path.is_file():
@@ -358,7 +365,10 @@ class MainScreen(Screen):
 
         for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
-            d["programs"].append(program_pane.program.asm if program_pane.program is not None else None)
+            prog_d = {}
+            prog_d["asm"] = program_pane.program.asm if program_pane.program is not None else None
+            prog_d["name"] = str(self.query_one(TabbedContent).get_tab(f"prog{i}").label)
+            d["programs"].append(prog_d)
 
         def handle_save_file(filename : str) -> None:
             def do_save_file(file_path):
@@ -534,12 +544,18 @@ class MainScreen(Screen):
             self.app.show_toast("EEPROM read complete.")
 
     def action_delete(self) -> None:
-        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        active_tab_id = self.query_one(TabbedContent).active
+        active_slot = active_tab_id.split("prog")[1]
+        active_program_pane = self.query_one(f"#fv1{active_tab_id}", FV1ProgramPane)
         active_program_pane.program = None
+        self.rename_program_slot(active_slot, f"Program {active_slot}")
 
     def action_new(self) -> None:
-        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        active_tab_id = self.query_one(TabbedContent).active
+        active_slot = active_tab_id.split("prog")[1]
+        active_program_pane = self.query_one(f"#fv1{active_tab_id}", FV1ProgramPane)
         active_program_pane.program = FV1Program("")
+        self.rename_program_slot(active_slot, f"Program {active_slot}")
         active_program_pane.query_one(TextArea).focus()
 
     def assemble_and_validate_program(self, program) -> bytearray:
