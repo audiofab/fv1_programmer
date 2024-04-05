@@ -40,7 +40,7 @@ from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 from fv1_programmer.dialogs import *
 
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 _title = "FV1 Programmer"
 MIN_PROGRAM_NUM = 1
