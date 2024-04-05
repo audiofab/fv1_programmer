@@ -11,142 +11,117 @@ from textual import events, on
 from textual import work
 from textual.reactive import reactive
 from textual.app import App, ComposeResult
+from textual.command import Hit, Hits, DiscoveryHit, Provider, CommandPalette
 from textual.binding import Binding
-from textual.containers import Container, Grid, Horizontal, VerticalScroll
-from textual.screen import Screen, ModalScreen
-from textual.worker import Worker, get_current_worker
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.screen import Screen
+from textual.worker import get_current_worker
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import (
     Footer,
     Header,
     Static,
-    TextLog,
-    Button,
+    RichLog,
     TabbedContent,
     TabPane,
     Switch,
-    Markdown,
     DirectoryTree,
-    Label,
-    LoadingIndicator,
-    Input,
+    TextArea,
+    ContentSwitcher,
+    Markdown,
 )
 
+from functools import partial
 from typing import Iterable
 from pathlib import Path
-from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
 import pyperclip
+from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
+from fv1_programmer.dialogs import *
 
 
-__version__ = "0.4.4"
+__version__ = "0.5.0"
 
 _title = "FV1 Programmer"
+MIN_PROGRAM_NUM = 1
+MAX_PROGRAM_NUM = 8
 
-class BusyScreen(ModalScreen):
-    def __init__(self, message : str) -> None:
-        self.message = message
-        super().__init__()
+class FV1AppCommands(Provider):
+    """A command provider to open a Python file in the current working directory."""
 
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Label(self.message),
-            LoadingIndicator(),
-            id="busyscreen"
-        )
+    async def startup(self) -> None:
+        """Called once when the command palette is opened"""
+        self.discovery_commands = [
+            ("Rename current program", self.screen.action_rename_program_slot, "Provide your own name for this program slot"),
+            ("New program", self.screen.action_new, "Create a new, empty program in current slot (Ctr+N)"),
+            ("Delete current program", self.screen.action_delete,"Delete any program in current slot"),
+        ]
 
+    async def discover(self,) -> Hits:
+        for name, callback, help_msg in self.discovery_commands:
+            yield DiscoveryHit(name, callback, help=help_msg)
 
-class FilteredDirectoryTree(DirectoryTree):
-    def __init__(self, *args, **kwargs):
-        self.valid_suffixes = []
-        try:
-            self.valid_suffixes = kwargs.pop("valid_suffixes")
-        except KeyError:
-            pass
-        super().__init__(*args, **kwargs)
+    async def search(self, query: str) -> Hits:
+        """Search for Python files."""
+        matcher = self.matcher(query)  
 
-    def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
-        return [path for path in paths if not path.name.startswith(".") and \
-                    # TODO: Support SpinCAD file types as well!
-                    path.is_dir() or (path.is_file() and path.suffix.lower() in self.valid_suffixes)]
+        app = self.app
+        assert isinstance(app, FV1App)
 
-
-class LoadFileScreen(ModalScreen[Path]):
-    SUPPORTED_FILE_SUFFIXES = [".json", ".spn"]
-    selection : reactive[Path | None] = reactive(None)
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Static("Choose a file:", id="fileselectlabel"),
-            FilteredDirectoryTree("./", id="filetree", valid_suffixes=LoadFileScreen.SUPPORTED_FILE_SUFFIXES),
-            Button("Cancel", variant="error", id="filedialogcancel"),
-            Button("Select", variant="primary", id="filedialogselect"),
-            id="filedialog",
-        )
-
-    @on(DirectoryTree.FileSelected, "#filetree")
-    def do_file_selected(self, event : DirectoryTree.FileSelected):
-        self.selection = event.path
-
-    def watch_selection(self, new_path: Path):
-        self.selection = new_path
-        enabled = self.selection is not None
-        select_button = self.query_one("#filedialogselect", Button)
-        select_button.disabled = not enabled
-        if enabled:
-            select_button.focus()
-
-    @on(Button.Pressed, "#filedialogselect")
-    def do_select(self):
-        self.dismiss(self.selection)
-
-    @on(Button.Pressed, "#filedialogcancel")
-    def cancel(self):
-        self.dismiss(None)
-
-
-class SaveFileScreen(ModalScreen[Path]):
-    filename : reactive("")
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Static("Please specify a filename:", id="fileselectlabel"),
-            Input("my_programs", id="filesavefilename"),
-            Button("Cancel", variant="error", id="filedialogcancel"),
-            Button("Save", variant="primary", id="filedialogselect"),
-            id="filesavedialog",
-        )
-
-    @on(Input.Changed)
-    def check_filename(self, event: Input.Changed) -> None:
-        self.query_one("#filedialogselect", Button).disabled = \
-                    len(self.query_one("#filesavefilename", Input).value) < 1
-
-    @on(Button.Pressed, "#filedialogselect")
-    def do_save(self):
-        self.dismiss(self.query_one("#filesavefilename", Input).value)
-
-    @on(Button.Pressed, "#filedialogcancel")
-    def cancel(self):
-        self.dismiss(None)
+        # Slot swapping commands
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
+            command = f"Swap with slot {i}"
+            score = matcher.match(command)
+            if score > 0:
+                yield Hit(
+                    score,
+                    matcher.highlight(command),
+                    partial(self.screen.swap_with_slot, i),
+                    help=f"Swap this slot with slot {i}",
+                )
 
 
 class FV1ProgramPane(Widget):
     program : reactive[FV1Program | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
-        yield Markdown()
+        with ContentSwitcher(initial="empty-slot"):  
+            yield Markdown(id="empty-slot")
+            yield TextArea.code_editor("", id="text-area-slot")
 
     def watch_program(self, new_program: FV1Program):
-        markdown = '# No program specified (leave this slot untouched)'
         if new_program is not None:
-            markdown = new_program.as_markdown()
-
-        self.query_one(Markdown).update(markdown)
+            self.query_one(ContentSwitcher).current = "text-area-slot"
+            self.query_one(TextArea).text = new_program.assembly
+        else:
+            self.query_one(ContentSwitcher).current = "empty-slot"
 
     def on_mount(self) -> None:
-        self.query_one(Markdown).tooltip = """Ctrl+C - Copy to clipboard\nCtrl+V/Ctrl+T - Paste from clipboard\nCtrl+D - Delete this program"""
+        self.query_one(Markdown).update("""# Empty Program Slot
+This is an empty program slot that will be ignored when downloading to the Easy Spin pedal. <br>
 
+To add a program to this slot, you can do one of the following:
+
+- Click here or press Ctrl+N to [create a new program for editing](#new-program)
+- Drag and drop an appropriate file onto this window (.spn, .json)
+
+Press *Ctrl+D* to delete a program and reset the program slot to be empty (ignored during download) <br>
+
+Also see these helpful links: <br>
+
+Textual documentation for the editor keybindings: https://textual.textualize.io/widgets/text_area/#bindings <br>
+Easy Spin webpage: https://audiofab.com/products/easy-spin <br>
+""")
+
+    @on(Markdown.LinkClicked)
+    def on_click(self, event):
+        if event.href == "#new-program":
+            self.program = FV1Program("")
+
+    @on(TextArea.Changed)
+    def on_changed(self, event):
+        self.program.asm = self.query_one(TextArea).text
+        self.query_one(TextArea).focus()
 
 
 class ProgramTabs(Widget):
@@ -169,34 +144,10 @@ class ProgramTabs(Widget):
             with TabPane("Program 8", id="prog8"):
                 yield FV1ProgramPane(id="fv1prog8")
 
-
-class YesNoScreen(ModalScreen[bool]):
-    def __init__(self, message, no_text="No", yes_text="Yes",
-                 no_variant="primary", yes_variant="primary",
-                 *args, **kwargs):
-        self.message = message
-        self.no_text = no_text
-        self.yes_text = yes_text
-        self.no_variant = no_variant
-        self.yes_variant = yes_variant
-        super().__init__(*args, **kwargs)
-
-    def compose(self) -> ComposeResult:
-        yield Grid(
-            Static(self.message, id="yesnomessage"),
-            Button(self.no_text, variant=self.no_variant, id="yesnono"),
-            Button(self.yes_text, variant=self.yes_variant, id="yesnoyes"),
-            id="yesnodialog",
-        )
-
-    @on(Button.Pressed, "#yesnoyes")
-    def yes(self):
-        self.dismiss(True)
-
-    @on(Button.Pressed, "#yesnono")
-    def no(self):
-        self.dismiss(False)
-
+    # @on(TabbedContent.TabActivated)
+    # def on_tab_changed(self, event):
+    #     self.app.logger.info(event.pane.query_one(TextArea))
+    #     event.pane.query_one(TextArea).focus()
 
 class Title(Static):
     pass
@@ -246,17 +197,17 @@ class ConsoleLogStream:
 class MainScreen(Screen):
     TITLE = _title
     BINDINGS = [
-        ("ctrl+l", "load_file", "Load"),
-        ("ctrl+s", "save", "Save"),
-        ("ctrl+r", "read_eeprom", "Read"),
-        ("ctrl+w", "write_eeprom", "Write"),
-        ("f1", "app.toggle_class('TextLog', '-hidden')", "Log"),
+        Binding("ctrl+n", "new", "New Program", show=False, priority=True),
+        Binding("ctrl+p", "command_palette", show=False, priority=True),
+        Binding("ctrl+l", "load_file", "Load", priority=True),
+        Binding("ctrl+s", "save", "Save", priority=True),
+        Binding("ctrl+r", "read_eeprom", "Read", priority=True),
+        Binding("ctrl+w", "write_eeprom", "Write", priority=True),
+        ("f1", "app.toggle_class('RichLog', '-hidden')", "Log"),
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
-        Binding("ctrl+v", "paste", "Paste", show=False, priority=True),
-        Binding("ctrl+t", "paste", "Paste", show=False, priority=True),
-        Binding("ctrl+d", "delete", "Delete Program", show=False, priority=True),
     ]
+    COMMANDS = {FV1AppCommands}
 
     show_sidebar = reactive(False)
 
@@ -276,7 +227,7 @@ class MainScreen(Screen):
         with Container():
             yield Sidebar(classes="-hidden")
             yield Header(show_clock=True)
-            yield TextLog(id="consolelog", classes="-hidden", wrap=False, highlight=True, markup=True)
+            yield RichLog(id="consolelog", classes="-hidden", wrap=False, highlight=True, markup=True)
             yield ProgramTabs()
             yield Footer()
 
@@ -291,7 +242,7 @@ class MainScreen(Screen):
             sidebar.add_class("-hidden")
 
     def console_log(self, renderable: RenderableType) -> None:
-        self.query_one(TextLog).write(renderable)
+        self.query_one(RichLog).write(renderable)
 
     def on_mount(self) -> None:
         sh = logging.StreamHandler(stream=ConsoleLogStream(self.console_log))
@@ -307,23 +258,62 @@ class MainScreen(Screen):
         self.app.push_screen(YesNoScreen("Are you sure you want to quit?",
                                          yes_variant="error"), check_quit)
 
+    def action_command_palette(self) -> None:
+        """Show the Textual command palette."""
+        if not CommandPalette.is_open(self):
+            self.app.push_screen(CommandPalette(), callback=self.app.call_next)
+
+    def swap_with_slot(self, dest_slot : int) -> None:
+        """Swaps the current program slot with `dest_slot`"""
+        active_tab_id = self.query_one(TabbedContent).active
+        active_slot = active_tab_id.split("prog")[1]
+        if active_slot == dest_slot:
+            return
+        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        dest_program_pane = self.query_one(f"#fv1prog{dest_slot}", FV1ProgramPane)
+        tmp_prog = dest_program_pane.program
+        dest_program_pane.program = active_program_pane.program
+        active_program_pane.program = tmp_prog
+
+        active_name = self.query_one(TabbedContent).get_tab(f"{self.query_one(TabbedContent).active}").label
+        dest_name = self.query_one(TabbedContent).get_tab(f"prog{dest_slot}").label
+        self.rename_program_slot(active_slot, dest_name)
+        self.rename_program_slot(dest_slot, active_name)
+
+    def rename_program_slot(self, slot_num : int, name : str) -> None:
+        self.query_one(TabbedContent).get_tab(f"prog{slot_num}").label = name
+
+    def action_rename_program_slot(self,) -> None:
+        """Prompts the user for a name for the current program slot"""
+        def handle_program_rename(name : str) -> None:
+            if name and len(name):
+                self.rename_program_slot(self.query_one(TabbedContent).active.split("prog")[1], name)
+
+        self.app.push_screen(RenameSlotScreen(), handle_program_rename)
+
     def load_json_file(self, path : Path) -> None:
         with open(str(path), 'r') as f:
             d = json.load(f)
             programs = d.get("programs", [None]*8)
-            for i in range(1,9):
+            for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
                 program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
                 if programs[i - 1] is not None:
-                    program_pane.program = FV1Program(programs[i - 1])
+                    if isinstance(programs[i - 1], str):
+                        program_pane.program = FV1Program(programs[i - 1])
+                        self.rename_program_slot(i, f"Program {i}")
+                    else:
+                        self.rename_program_slot(i, programs[i - 1].get("name", f"Program {i}"))
+                        prog = programs[i - 1].get("asm", None)
+                        program_pane.program = FV1Program(prog) if prog is not None else prog
+
         self.app.show_toast(f"Loaded programs from {path}")
 
     def load_spn_file(self, path : Path, slot_number : int) -> None:
         with open(str(path), 'r') as f:
             program_pane = self.query_one(f"#fv1prog{slot_number}", FV1ProgramPane)
             program_pane.program = FV1Program("".join(f.readlines()))
+            self.rename_program_slot(slot_number, path.stem)
         self.app.show_toast(f"Loaded {path}")
-        if not self.app.setting_asfv1_spinreals:
-            self.app.show_toast(f"You may want to enable 'Spin Reals' in the settings!")
 
     def handle_load_file(self, path : Path) -> None:
         if path is not None and path.exists() and path.is_file():
@@ -373,9 +363,12 @@ class MainScreen(Screen):
     def action_save(self) -> None:
         d = {"programs" : []}
 
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
-            d["programs"].append(program_pane.program.asm if program_pane.program is not None else None)
+            prog_d = {}
+            prog_d["asm"] = program_pane.program.asm if program_pane.program is not None else None
+            prog_d["name"] = str(self.query_one(TabbedContent).get_tab(f"prog{i}").label)
+            d["programs"].append(prog_d)
 
         def handle_save_file(filename : str) -> None:
             def do_save_file(file_path):
@@ -400,12 +393,16 @@ class MainScreen(Screen):
     def action_write_eeprom(self) -> None:
         programs = []
         errors = 0
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
                 bin_array = self.assemble_and_validate_program(program_pane.program)
                 if bin_array is not None:
-                    programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
+                    if len(bin_array):
+                        programs.append({"program": i, "address" : (i - 1)*FV1_PROGRAM_MAX_BYTES, "data" : bin_array})
+                    else:
+                        # Program assembled but there are no instructions
+                        self.app.show_toast(f"Program {i} has no instructions.")
                 else:
                     self.app.show_toast(f"Program {i} failed to assemble. See log for details.")
                     errors += 1
@@ -432,7 +429,7 @@ class MainScreen(Screen):
             return I2CEEPROM(adaptor, self.app.cmdline_args.ee_size,
                              page_size_in_bytes=self.app.cmdline_args.ee_page_size)
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     def write_eeprom(self, programs : Iterable[dict], simulate : bool) -> None:
         worker = get_current_worker()
         eeprom = None
@@ -482,7 +479,7 @@ class MainScreen(Screen):
                              self.app.setting_disfv1_suppressraw)
 
         num_programs = 0
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
                 num_programs += 1
@@ -497,7 +494,7 @@ class MainScreen(Screen):
         else:
             do_read_eeprom()
 
-    @work(exclusive=True)
+    @work(exclusive=True, thread=True)
     def read_eeprom(self, simulate : bool, relative : bool, suppressraw : bool) -> None:
         worker = get_current_worker()
         eeprom = None
@@ -529,7 +526,7 @@ class MainScreen(Screen):
             return
 
         were_warnings = False
-        for i in range(1,9):
+        for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             program_pane.program = message.programs[i - 1]["program"]
             warnings = message.programs[i - 1]["warnings"]
@@ -546,26 +543,32 @@ class MainScreen(Screen):
         else:
             self.app.show_toast("EEPROM read complete.")
 
-    def action_paste(self) -> None:
-        # Validate program
-        new_program = FV1Program(pyperclip.paste())
-        bin_array = self.assemble_and_validate_program(new_program)
-        if bin_array is not None:
-            active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
-            active_program_pane.program = FV1Program(pyperclip.paste())
-        else:
-            self.app.show_toast("Ignoring invalid clipboard contents. See log for details.")
-
     def action_delete(self) -> None:
-        active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
+        active_tab_id = self.query_one(TabbedContent).active
+        active_slot = active_tab_id.split("prog")[1]
+        active_program_pane = self.query_one(f"#fv1{active_tab_id}", FV1ProgramPane)
         active_program_pane.program = None
+        self.rename_program_slot(active_slot, f"Program {active_slot}")
+
+    def action_new(self) -> None:
+        active_tab_id = self.query_one(TabbedContent).active
+        active_slot = active_tab_id.split("prog")[1]
+        active_program_pane = self.query_one(f"#fv1{active_tab_id}", FV1ProgramPane)
+        active_program_pane.program = FV1Program("")
+        self.rename_program_slot(active_slot, f"Program {active_slot}")
+        active_program_pane.query_one(TextArea).focus()
 
     def assemble_and_validate_program(self, program) -> bytearray:
-        bin_array, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
-                                                       spinreals=self.app.setting_asfv1_spinreals)
+        bin_array, num_instructions, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
+                                                                         spinreals=self.app.setting_asfv1_spinreals)
         [self.app.logger.info(w) for w in warnings]
         [self.app.logger.info(e) for e in errors]
-        return bin_array if len(errors) == 0 else None
+        if len(errors) == 0:
+            if num_instructions > 0:
+                return bin_array
+            else:
+                return []
+        return None
 
 
 from dataclasses import dataclass
@@ -583,8 +586,10 @@ class Args:
 
 
 class FV1App(App[None]):
-    CSS_PATH = "tui.css"
+    CSS_PATH = ["tui.css", "dialogs.css"]
     SCREENS = {"main" : MainScreen()}
+    ENABLE_COMMAND_PALETTE = False
+    COMMANDS = {}
 
     def __init__(self, cmdline_args=None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -628,8 +633,8 @@ class FV1App(App[None]):
     def exit(self, result = None) -> None:
         active_program_pane = self.query_one(f"#fv1{self.query_one(TabbedContent).active}", FV1ProgramPane)
         if active_program_pane.program is not None:
-            pyperclip.copy(active_program_pane.program.asm)
-            self.show_toast("Current program copied to clipboard")
+            pyperclip.copy(active_program_pane.query_one(TextArea).selected_text)
+        #     self.show_toast("Current program copied to clipboard")
 
     def do_exit(self, result = None) -> None:
         super().exit(result)
