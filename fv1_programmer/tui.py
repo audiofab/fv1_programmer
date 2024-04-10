@@ -26,14 +26,13 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
     Switch,
-    DirectoryTree,
     TextArea,
     ContentSwitcher,
     Markdown,
 )
 
 from functools import partial
-from typing import Iterable
+from typing import Iterable, Tuple
 from pathlib import Path
 import pyperclip
 from fv1_programmer.fv1 import FV1Program, FV1_PROGRAM_MAX_BYTES
@@ -85,8 +84,9 @@ class FV1ProgramPane(Widget):
     program : reactive[FV1Program | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
-        with ContentSwitcher(initial="empty-slot"):  
-            yield Markdown(id="empty-slot")
+        with ContentSwitcher(initial="empty-slot"):
+            with VerticalScroll(id="empty-slot"):
+                yield Markdown()
             yield TextArea.code_editor("", id="text-area-slot")
 
     def watch_program(self, new_program: FV1Program):
@@ -98,25 +98,33 @@ class FV1ProgramPane(Widget):
 
     def on_mount(self) -> None:
         self.query_one(Markdown).update("""# Empty Program Slot
-This is an empty program slot that will be ignored when downloading to the Easy Spin pedal. <br>
+This is an empty program slot that will be ignored when downloading to the Easy Spin pedal (unless you add a program). <br>
 
 To add a program to this slot, you can do one of the following:
 
-- Click here or press Ctrl+N to [create a new program for editing](#new-program)
-- Drag and drop an appropriate file onto this window (.spn, .json)
+- Click [here](#new-program) or press Ctrl+N to [create a new program for editing](#new-program)
+- Drag and drop an appropriate file onto this window (SpinASM .spn file, Audiofab fv1_programmer .json)
 
-Press *Ctrl+D* to delete a program and reset the program slot to be empty (ignored during download) <br>
+## Useful Information
+
+To bring up a command palette of possible commands, press [Ctrl+P](#command-palette). <br>
 
 Also see these helpful links: <br>
 
-Textual documentation for the editor keybindings: https://textual.textualize.io/widgets/text_area/#bindings <br>
-Easy Spin webpage: https://audiofab.com/products/easy-spin <br>
+fv1_programmer GitHub page (source and documentation): https://github.com/audiofab/fv1_programmer \n
+Easy Spin webpage: https://audiofab.com/products/easy-spin \n
+Spin Semiconductor: http://www.spinsemi.com/products.html \n
+SpinCAD Designer: https://holy-city-audio.gitbook.io/spincad-designer \n
+Mark Stratman's FV-1 Programs Directory: https://mstratman.github.io/fv1-programs/ \n
+Textual documentation for the editor keybindings: https://textual.textualize.io/widgets/text_area/#bindings \n
 """)
 
     @on(Markdown.LinkClicked)
     def on_click(self, event):
         if event.href == "#new-program":
             self.program = FV1Program("")
+        elif event.href == "#command-palette":
+            self.app.main_screen.action_command_palette()
 
     @on(TextArea.Changed)
     def on_changed(self, event):
@@ -203,6 +211,7 @@ class MainScreen(Screen):
         Binding("ctrl+s", "save", "Save", priority=True),
         Binding("ctrl+r", "read_eeprom", "Read", priority=True),
         Binding("ctrl+w", "write_eeprom", "Write", priority=True),
+        Binding("ctrl+b", "assemble_programs", "Assemble", priority=True),
         ("f1", "app.toggle_class('RichLog', '-hidden')", "Log"),
         ("f2", "toggle_sidebar", "Settings"),
         ("ctrl+q", "request_quit", "Quit"),
@@ -390,9 +399,9 @@ class MainScreen(Screen):
 
         self.app.push_screen(SaveFileScreen(), handle_save_file)
 
-    def action_write_eeprom(self) -> None:
+    def action_assemble_programs(self,) -> Tuple[Iterable, int]:
         programs = []
-        errors = 0
+        num_errors = 0
         for i in range(MIN_PROGRAM_NUM, MAX_PROGRAM_NUM + 1):
             program_pane = self.query_one(f"#fv1prog{i}", FV1ProgramPane)
             if program_pane.program is not None:
@@ -405,16 +414,25 @@ class MainScreen(Screen):
                         self.app.show_toast(f"Program {i} has no instructions.")
                 else:
                     self.app.show_toast(f"Program {i} failed to assemble. See log for details.")
-                    errors += 1
+                    num_errors += 1
 
-        if errors > 0:
-            self.app.show_toast("Errors while assembling. Download aborted.", severity="warning")
-        else:
-            if len(programs) == 0:
-                self.app.show_toast("Nothing to do!", severity="warning")
-            else:
-                self.app.push_screen(BusyScreen("Downloading to pedal..."))
-                self.write_eeprom(programs, self.app.setting_simulate)
+        if num_errors > 0:
+            self.app.show_toast("Errors while assembling.", severity="warning")
+
+        if len(programs) == 0:
+            self.app.show_toast("Nothing to do!", severity="warning")
+
+        if num_errors == 0 and len(programs):
+            self.app.show_toast(f"Successfully assembled {len(programs)} programs.", severity="info")
+
+        return programs, num_errors
+
+    def action_write_eeprom(self) -> None:
+        programs, num_errors = self.action_assemble_programs()
+
+        if num_errors == 0 and len(programs):
+            self.app.push_screen(BusyScreen("Downloading to pedal..."))
+            self.write_eeprom(programs, self.app.setting_simulate)
 
     def _get_eeprom(self,):
         if self.app.setting_simulate:
@@ -547,16 +565,36 @@ class MainScreen(Screen):
         active_tab_id = self.query_one(TabbedContent).active
         active_slot = active_tab_id.split("prog")[1]
         active_program_pane = self.query_one(f"#fv1{active_tab_id}", FV1ProgramPane)
-        active_program_pane.program = None
-        self.rename_program_slot(active_slot, f"Program {active_slot}")
+
+        def do_delete_program():
+            active_program_pane.program = None
+            self.rename_program_slot(active_slot, f"Program {active_slot}")
+
+        if active_program_pane.program is not None:
+            def check_overwrite(should_overwrite : bool) -> None:
+                if should_overwrite:
+                    do_delete_program()
+            self.app.push_screen(YesNoScreen("Reset current slot?"), check_overwrite)
+        else:
+            do_delete_program()
 
     def action_new(self) -> None:
         active_tab_id = self.query_one(TabbedContent).active
         active_slot = active_tab_id.split("prog")[1]
         active_program_pane = self.query_one(f"#fv1{active_tab_id}", FV1ProgramPane)
-        active_program_pane.program = FV1Program("")
-        self.rename_program_slot(active_slot, f"Program {active_slot}")
-        active_program_pane.query_one(TextArea).focus()
+
+        def do_new_program():
+            active_program_pane.program = FV1Program("")
+            self.rename_program_slot(active_slot, f"Program {active_slot}")
+            active_program_pane.query_one(TextArea).focus()
+
+        if active_program_pane.program is not None:
+            def check_overwrite(should_overwrite : bool) -> None:
+                if should_overwrite:
+                    do_new_program()
+            self.app.push_screen(YesNoScreen("Replace current program with an empty one?"), check_overwrite)
+        else:
+            do_new_program()
 
     def assemble_and_validate_program(self, program) -> bytearray:
         bin_array, num_instructions, warnings, errors = program.assemble(clamp=self.app.setting_asfv1_clamp,
@@ -644,3 +682,7 @@ class FV1App(App[None]):
 
     def show_toast(self, message, title=None, severity="information", timeout=4.0) -> None:
         self.notify(message, title=title, severity=severity, timeout=timeout)
+
+    @property
+    def main_screen(self,) -> Screen:
+        return self.SCREENS["main"]

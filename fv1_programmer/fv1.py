@@ -34,6 +34,10 @@ class FV1Program(object):
             if len(errors) == 0:
                 errors = ["Failed to assemble program"]
             return None, fp.icnt, warnings, errors
+        except Exception as e:
+            if len(errors) == 0:
+                errors = [f"An unknown error occurred on line {fp.sline}"]
+            return None, fp.icnt, warnings, errors
 
         return fp.program, fp.icnt, warnings, errors
 
@@ -51,8 +55,11 @@ class FV1Program(object):
         fp = fv1deparse(data,
                         relative=relative, nopraw=suppressraw,
                         wfunc=warning)
-        fp.deparse()
-        self.asm = fp.listing
+        try:
+            fp.deparse()
+            self.asm = fp.listing
+        except Exception as e:
+            self.asm = "; Failed when trying to disassemble! Invalid program data?"
 
         return warnings
 

@@ -1,5 +1,10 @@
 import EasyMCP2221
+from EasyMCP2221.exceptions import LowSCLError, LowSDAError
 from .adapter import I2CAdaptor
+
+
+class UnexpectedHardwareException(Exception):
+    pass
 
 
 class MCP2221I2CAdaptor(I2CAdaptor):
@@ -19,10 +24,16 @@ class MCP2221I2CAdaptor(I2CAdaptor):
         pass
 
     def read_bytes(self, num_bytes):
-        return self.mcp.I2C_read(self.address, size=num_bytes, timeout_ms=self.timeout)
+        try:
+            return self.mcp.I2C_read(self.address, size=num_bytes, timeout_ms=self.timeout)
+        except (LowSCLError, LowSDAError):
+            raise UnexpectedHardwareException("Unexpected programmer state. Try unplugging and re-plugging the programmer and trying again.")
 
     def write_bytes(self, byte_list):
-        self.mcp.I2C_write(self.address, byte_list, timeout_ms=self.timeout)
+        try:
+            self.mcp.I2C_write(self.address, byte_list, timeout_ms=self.timeout)
+        except (LowSCLError, LowSDAError):
+            raise UnexpectedHardwareException("Unexpected programmer state. Try unplugging and re-plugging the programmer and trying again.")
 
     def write_then_read_bytes(self, byte_list, num_read_bytes):
         self.mcp.I2C_write(self.address, byte_list, kind='nonstop', timeout_ms=self.timeout)

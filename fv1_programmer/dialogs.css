@@ -38,7 +38,7 @@ ModalScreen {
 #renameslotdialog {
     padding: 0 1;
     width: 80vw;
-    height: 30vh;
+    height: 8;
     border: thick $background 80%;
     background: $surface;
 }
@@ -51,7 +51,7 @@ ModalScreen {
 #filesavedialog {
     padding: 0 1;
     width: 80vw;
-    height: 30vh;
+    height: 12;
     border: thick $background 80%;
     background: $surface;
 }
