@@ -28,7 +28,7 @@ $ fv1_programmer
 
 This will bring up a user interface that will allow you to configure all 8 program slots of the Easy Spin's FV-1 DSP and write the EEPROM.
 
-![image](https://github.com/audiofab/fv1_programmer/assets/1384978/36d8e9b9-4fe6-4cc4-b7b3-194910aaff97)
+![image](https://github.com/audiofab/fv1_programmer/assets/1384978/300f1d0a-0dfc-4b63-8364-a8b2a8e76c65)
 
 NOTE: On Linux you likely still need to install `libusb` and add a udev rule separately. See [Ubuntu Linux](README.md#Ubuntu-linux).
 
