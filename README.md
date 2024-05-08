@@ -8,7 +8,7 @@ This utility also leverages the excellent FV-1 assembler ([asfv1](https://github
 
 # Installation
 
-This utility requires Python 3.8 or greater. Alternatively, you can download one of the pre-built binaries for Windows, MacOS or Ubuntu Linux from the [releases page](https://github.com/audiofab/fv1_programmer/releases).
+This utility requires Python 3.8 or greater. You will need a computer with a USB port (at least USB 2.0) running Windows 10 or above, Mac OS X 10.7 (or later) or a Linux distribution with a kernel that supports USB CDC class drivers. If you don't want to install Python you can download one of the pre-built binaries for Windows, Mac OS or Ubuntu Linux from the [releases page](https://github.com/audiofab/fv1_programmer/releases).
 
 ## Running From Python
 
@@ -42,7 +42,7 @@ Note: We still recommend you install [Windows Terminal](https://aka.ms/terminal)
 
 ### MacOS
 
-Currently, the application is built as an executable for MacOS, but you need to make it executable. To do this, open a terminal window; then 'cd' to the directory where you downloaded the fv1-programmer and type:
+Currently, the application is built as an executable for MacOS (you will need Monterey 12.7.2 or newer), but you need to make it executable. To do this, open a terminal window; then 'cd' to the directory where you downloaded the fv1-programmer and type:
 
 `chmod a+x fv1-programmer-macos-latest`
 
