@@ -1,3 +1,4 @@
+# NOTE: This software is no longer actively developed. Please see our [Visual Studio Code extension](https://marketplace.visualstudio.com/items?itemName=ms-audiofab.fv1-vscode) for a more full-featured replacement going forward!
 # FV-1 Programmer
 
 An FV-1 assembler/disassembler and EEPROM programming tool for the [Audiofab](https://audiofab.com/) [Easy Spin](https://audiofab.com/products/easy-spin) effects pedal.
